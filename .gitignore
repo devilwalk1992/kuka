@@ -1,0 +1,13 @@
+.env
+__pycache__/
+.streamlit/secrets.toml
+
+# Large files - PPT, Excel, archives
+*.pptx
+*.xlsx
+*.zip
+*.rar
+*.7z
+# Scene images and PPT folders
+**/场景图/
+**/PPT/
