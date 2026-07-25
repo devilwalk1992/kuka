@@ -1,2 +1,6 @@
-﻿xlsxwriter==3.2.9
-streamlit, openai, python-dotenv, pandas, openpyxl
+streamlit
+openai
+python-dotenv
+pandas
+openpyxl
+xlsxwriter
