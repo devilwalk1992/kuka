@@ -608,12 +608,13 @@ with main_tab2:
         cat_map = {"床垫": "床垫", "床架": "床架", "沙发": "沙发"}
         category = cat_map.get(kw)
 
-        # 增强关键词提取：同时保留原始查询 + 提取的型号关键词
-        # 例如 "815的床" → 同时用 "815的床 815" 搜索 → 数字模糊匹配 + 品类名匹配双保险
+        # 增强关键词提取：同时保留原始查询 + 提取的数字/型号关键词
+        # 用 \d{2,} 代替 \b\d{3,4}\b，因为 \b 在中文前后（如"815的床"）会失效
         search_kw = guide_query
-        model_patterns = re.findall(r'[A-Za-z]{1,4}\.?\d{2,4}[A-Za-z0-9]*|\b\d{3,4}\b', guide_query)
-        if model_patterns:
-            search_kw = guide_query + " " + " ".join(model_patterns)
+        model_patterns = re.findall(r'[A-Za-z]{1,4}\.?\d{2,4}[A-Za-z0-9]*|\d{2,}', guide_query)
+        extra_kw = " ".join(model_patterns)
+        if extra_kw.strip():
+            search_kw = guide_query + " " + extra_kw
         candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw)
 
         guide_prompt = f"""你是一位精准的家居与睡眠产品检索助手。**严格仅从下方候选产品中**检索，不得推荐列表之外的产品。如列表无合适产品则如实说明。
