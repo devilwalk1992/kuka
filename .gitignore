@@ -1,13 +1,63 @@
-.env
+# Python
 __pycache__/
-.streamlit/secrets.toml
+*.pyc
+*.pyo
+.env
 
-# Large files - PPT, Excel, archives
+# 其他脚本
+test_openai.py
+
+# 脚本工具文件（不在产品数据范围内）
+_*.py
+check_*.py
+ocr_*.py
+process_*.py
+extract_*.py
+analyze_*.py
+generate_*.py
+organize_*.py
+build_*.py
+fix_*.py
+standardize_*.py
+**/analyze*.py
+**/run_ocr.ps1
+
+# OCR 临时文件
+_*_ocr.json
+**/_*_ocr.json
+*_ocr_result.json
+**/*_ocr_result.json
+browse_ocr_result.json
+**/browse_ocr_result.json
+
+# 临时文件
+_temp*
+**/_temp*
+*.ps1
+
+# 输出文件
+*.txt
+output_*.txt
+jd*.txt
+
+# Streamlit 应用
+app.py
+requirements.txt
+.streamlit/
+
+# 旧版应用目录
+kuka-ai-app/
+my-kuka-app/
+
+# 旧版备份目录
+markdown_db_backup/
+
+# 智能床垫目录
+Intelligent mattress__products/
+
+# 大型文件
 *.pptx
 *.xlsx
 *.zip
 *.rar
 *.7z
-# Scene images and PPT folders
-**/场景图/
-**/PPT/

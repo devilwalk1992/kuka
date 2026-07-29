@@ -1,0 +1,1406 @@
+{
+  "YS.0003": {
+    "name": "波尔多",
+    "launch_date": "2025.1",
+    "sheet": "固定沙发",
+    "specs": [
+      {
+        "spec": "1.5右",
+        "price": 3700.0,
+        "actual_price": 6290
+      },
+      {
+        "spec": "1.5左",
+        "price": 3700.0,
+        "actual_price": 6290
+      },
+      {
+        "spec": "1.5无组",
+        "price": 2780.0,
+        "actual_price": 4726
+      },
+      {
+        "spec": "3右",
+        "price": 6080.0,
+        "actual_price": 10336
+      },
+      {
+        "spec": "3左",
+        "price": 6080.0,
+        "actual_price": 10336
+      },
+      {
+        "spec": "3左A",
+        "price": 5830.0,
+        "actual_price": 9911
+      },
+      {
+        "spec": "3右A",
+        "price": 5830.0,
+        "actual_price": 9911
+      },
+      {
+        "spec": "1.5左A",
+        "price": 3580.0,
+        "actual_price": 6086
+      },
+      {
+        "spec": "1.5右A",
+        "price": 3580.0,
+        "actual_price": 6086
+      },
+      {
+        "spec": "躺无左组",
+        "price": 3210.0,
+        "actual_price": 5457
+      },
+      {
+        "spec": "躺无右组",
+        "price": 3210.0,
+        "actual_price": 5457
+      },
+      {
+        "spec": "角组",
+        "price": 3190.0,
+        "actual_price": 5423
+      },
+      {
+        "spec": "3单+1.5单",
+        "price": 9780.0,
+        "actual_price": 16626
+      },
+      {
+        "spec": "3单A+1.5单A",
+        "price": 9410.0,
+        "actual_price": 15997
+      },
+      {
+        "spec": "3单+转角+躺无",
+        "price": 12480.0,
+        "actual_price": 21216
+      }
+    ]
+  },
+  "YS.0015": {
+    "name": "山岚",
+    "launch_date": "2025.12",
+    "sheet": "固定沙发",
+    "specs": [
+      {
+        "spec": "1.5右",
+        "price": 2960.0,
+        "actual_price": 5032
+      },
+      {
+        "spec": "1.5左",
+        "price": 2960.0,
+        "actual_price": 5032
+      },
+      {
+        "spec": "3右",
+        "price": 4750.0,
+        "actual_price": 8075
+      },
+      {
+        "spec": "3左",
+        "price": 4750.0,
+        "actual_price": 8075
+      },
+      {
+        "spec": "躺无左组",
+        "price": 2880.0,
+        "actual_price": 4896
+      },
+      {
+        "spec": "躺无右组",
+        "price": 2880.0,
+        "actual_price": 4896
+      },
+      {
+        "spec": "角组",
+        "price": 1930.0,
+        "actual_price": 3281
+      },
+      {
+        "spec": "1.5左A",
+        "price": 2830.0,
+        "actual_price": 4811
+      },
+      {
+        "spec": "1.5右A",
+        "price": 2830.0,
+        "actual_price": 4811
+      },
+      {
+        "spec": "3左A",
+        "price": 4510.0,
+        "actual_price": 7667
+      },
+      {
+        "spec": "3右A",
+        "price": 4510.0,
+        "actual_price": 7667
+      },
+      {
+        "spec": "3单+1.5单",
+        "price": 7710.0,
+        "actual_price": 13107
+      },
+      {
+        "spec": "3单A+1.5单A",
+        "price": 7340.0,
+        "actual_price": 12478
+      },
+      {
+        "spec": "3单+躺无",
+        "price": 7630.0,
+        "actual_price": 12971
+      },
+      {
+        "spec": "3单+转角+躺无",
+        "price": 9560.0,
+        "actual_price": 16252
+      }
+    ]
+  },
+  "YS.0011": {
+    "name": "风禾",
+    "launch_date": "2026.3",
+    "sheet": "固定沙发",
+    "specs": [
+      {
+        "spec": "1右",
+        "price": 1790.0,
+        "actual_price": 3043
+      },
+      {
+        "spec": "1左",
+        "price": 1790.0,
+        "actual_price": 3043
+      },
+      {
+        "spec": "1.5左|坐宽74",
+        "price": 1860.0,
+        "actual_price": 3162
+      },
+      {
+        "spec": "1.5右|坐宽74",
+        "price": 1860.0,
+        "actual_price": 3162
+      },
+      {
+        "spec": "1.5右|坐宽86",
+        "price": 1950.0,
+        "actual_price": 3315
+      },
+      {
+        "spec": "1.5左|坐宽86",
+        "price": 1950.0,
+        "actual_price": 3315
+      },
+      {
+        "spec": "2.5右",
+        "price": 2690.0,
+        "actual_price": 4573
+      },
+      {
+        "spec": "2.5左",
+        "price": 2690.0,
+        "actual_price": 4573
+      },
+      {
+        "spec": "3右|坐宽74",
+        "price": 2840.0,
+        "actual_price": 4828
+      },
+      {
+        "spec": "3左|坐宽74",
+        "price": 2840.0,
+        "actual_price": 4828
+      },
+      {
+        "spec": "3左|坐宽86",
+        "price": 3050.0,
+        "actual_price": 5185
+      },
+      {
+        "spec": "3右|坐宽86",
+        "price": 3050.0,
+        "actual_price": 5185
+      },
+      {
+        "spec": "3右|坐宽86+1.5左|坐宽86",
+        "price": 5000.0,
+        "actual_price": 8500
+      },
+      {
+        "spec": "3右|坐宽74+1.5左|坐宽74",
+        "price": 4700.0,
+        "actual_price": 7990
+      },
+      {
+        "spec": "2.5右+1左",
+        "price": 4480.0,
+        "actual_price": 7616
+      }
+    ]
+  },
+  "YS.0011B": {
+    "name": "风禾",
+    "launch_date": "2026.4",
+    "sheet": "固定沙发",
+    "specs": [
+      {
+        "spec": "1.5右",
+        "price": 1840.0,
+        "actual_price": 3128
+      },
+      {
+        "spec": "1.5左",
+        "price": 1840.0,
+        "actual_price": 3128
+      },
+      {
+        "spec": "2右",
+        "price": 2180.0,
+        "actual_price": 3706
+      },
+      {
+        "spec": "2左",
+        "price": 2180.0,
+        "actual_price": 3706
+      },
+      {
+        "spec": "3右",
+        "price": 2840.0,
+        "actual_price": 4828
+      },
+      {
+        "spec": "3左",
+        "price": 2840.0,
+        "actual_price": 4828
+      },
+      {
+        "spec": "3.5双2坐垫",
+        "price": 3470.0,
+        "actual_price": 5899
+      },
+      {
+        "spec": "2左+2右",
+        "price": 4360.0,
+        "actual_price": 7412
+      },
+      {
+        "spec": "3右+1.5左",
+        "price": 4680.0,
+        "actual_price": 7956
+      }
+    ]
+  },
+  "YS.0011C": {
+    "name": "风禾",
+    "launch_date": "2026.4",
+    "sheet": "固定沙发",
+    "specs": [
+      {
+        "spec": "1.5右|手靠",
+        "price": 2630.0,
+        "actual_price": 4471
+      },
+      {
+        "spec": "1.5左|手靠",
+        "price": 2630.0,
+        "actual_price": 4471
+      },
+      {
+        "spec": "2左组|手靠",
+        "price": 2880.0,
+        "actual_price": 4896
+      },
+      {
+        "spec": "2右组|手靠",
+        "price": 2880.0,
+        "actual_price": 4896
+      },
+      {
+        "spec": "3右|手靠",
+        "price": 3890.0,
+        "actual_price": 6613
+      },
+      {
+        "spec": "3左|手靠",
+        "price": 3890.0,
+        "actual_price": 6613
+      },
+      {
+        "spec": "1.5左|手靠+3右|手靠",
+        "price": 6520.0,
+        "actual_price": 11084
+      },
+      {
+        "spec": "2左组|手靠+2右组|手靠",
+        "price": 5760.0,
+        "actual_price": 9792
+      }
+    ]
+  },
+  "YS.0008": {
+    "name": "由心岛",
+    "launch_date": "2026.4",
+    "sheet": "固定沙发",
+    "specs": [
+      {
+        "spec": "靠背",
+        "price": 780.0,
+        "actual_price": 1326
+      },
+      {
+        "spec": "靠背A",
+        "price": 600.0,
+        "actual_price": 1020
+      },
+      {
+        "spec": "坐垫A",
+        "price": 1610.0,
+        "actual_price": 2737
+      },
+      {
+        "spec": "坐垫B",
+        "price": 1880.0,
+        "actual_price": 3196
+      },
+      {
+        "spec": "坐垫C",
+        "price": 1380.0,
+        "actual_price": 2346
+      },
+      {
+        "spec": "ABAC（含靠背+靠背A）",
+        "price": 7860.0,
+        "actual_price": 13362
+      },
+      {
+        "spec": "AAC（靠背）",
+        "price": 5380.0,
+        "actual_price": 9146
+      }
+    ]
+  },
+  "YS.0033": {
+    "name": "云松",
+    "launch_date": "2026.4",
+    "sheet": "固定沙发",
+    "specs": [
+      {
+        "spec": "1.5右",
+        "price": 2330.0,
+        "actual_price": 3961
+      },
+      {
+        "spec": "1.5左",
+        "price": 2330.0,
+        "actual_price": 3961
+      },
+      {
+        "spec": "1.5左A",
+        "price": 2240.0,
+        "actual_price": 3808
+      },
+      {
+        "spec": "1.5右A",
+        "price": 2240.0,
+        "actual_price": 3808
+      },
+      {
+        "spec": "3右",
+        "price": 3470.0,
+        "actual_price": 5899
+      },
+      {
+        "spec": "3左",
+        "price": 3470.0,
+        "actual_price": 5899
+      },
+      {
+        "spec": "3.5右",
+        "price": 3670.0,
+        "actual_price": 6239
+      },
+      {
+        "spec": "3.5左",
+        "price": 3670.0,
+        "actual_price": 6239
+      },
+      {
+        "spec": "3.5右+1.5左",
+        "price": 6000.0,
+        "actual_price": 10200
+      },
+      {
+        "spec": "3右+1.5左A",
+        "price": 5710.0,
+        "actual_price": 9707
+      }
+    ]
+  },
+  "YS.0022": {
+    "name": "靠山",
+    "launch_date": "2026.4",
+    "sheet": "固定沙发",
+    "specs": [
+      {
+        "spec": "1.5右|坐宽78",
+        "price": 2820.0,
+        "actual_price": 4794
+      },
+      {
+        "spec": "1.5左|坐宽78",
+        "price": 2820.0,
+        "actual_price": 4794
+      },
+      {
+        "spec": "1.5左|坐宽90",
+        "price": 2970.0,
+        "actual_price": 5049
+      },
+      {
+        "spec": "1.5右|坐宽90",
+        "price": 2970.0,
+        "actual_price": 5049
+      },
+      {
+        "spec": "2右",
+        "price": 3350.0,
+        "actual_price": 5695
+      },
+      {
+        "spec": "2左",
+        "price": 3350.0,
+        "actual_price": 5695
+      },
+      {
+        "spec": "3左|坐宽90",
+        "price": 4760.0,
+        "actual_price": 8092
+      },
+      {
+        "spec": "3右|坐宽90",
+        "price": 4760.0,
+        "actual_price": 8092
+      },
+      {
+        "spec": "3左|坐宽78",
+        "price": 4440.0,
+        "actual_price": 7548
+      },
+      {
+        "spec": "3右|坐宽78",
+        "price": 4440.0,
+        "actual_price": 7548
+      },
+      {
+        "spec": "腰枕",
+        "price": 140.0,
+        "actual_price": 238
+      },
+      {
+        "spec": "腰枕A",
+        "price": 140.0,
+        "actual_price": 238
+      },
+      {
+        "spec": "腰枕B",
+        "price": 140.0,
+        "actual_price": 238
+      },
+      {
+        "spec": "1.5左|坐宽90+3右|坐宽90+腰枕*3(3.32m）",
+        "price": 8150.0,
+        "actual_price": 13855
+      },
+      {
+        "spec": "1.5左|坐宽78+3右|坐宽78+腰枕A*3（2.96m）",
+        "price": 7680.0,
+        "actual_price": 13056
+      },
+      {
+        "spec": "2左+2右+腰枕B*2（2.78m）",
+        "price": 6980.0,
+        "actual_price": 11866
+      }
+    ]
+  },
+  "YS.0025": {
+    "name": "曼塔",
+    "launch_date": "2026.5",
+    "sheet": "固定沙发",
+    "specs": [
+      {
+        "spec": "1.5右",
+        "price": 1610.0,
+        "actual_price": 2737
+      },
+      {
+        "spec": "1.5左",
+        "price": 1610.0,
+        "actual_price": 2737
+      },
+      {
+        "spec": "1.5无组",
+        "price": 1150.0,
+        "actual_price": 1955
+      },
+      {
+        "spec": "2.5右",
+        "price": 2380.0,
+        "actual_price": 4046
+      },
+      {
+        "spec": "2.5左",
+        "price": 2380.0,
+        "actual_price": 4046
+      },
+      {
+        "spec": "3右",
+        "price": 2610.0,
+        "actual_price": 4437
+      },
+      {
+        "spec": "3左",
+        "price": 2610.0,
+        "actual_price": 4437
+      },
+      {
+        "spec": "躺右",
+        "price": 2050.0,
+        "actual_price": 3485
+      },
+      {
+        "spec": "躺左",
+        "price": 2050.0,
+        "actual_price": 3485
+      },
+      {
+        "spec": "抱枕",
+        "price": 50.0,
+        "actual_price": 85
+      },
+      {
+        "spec": "抱枕",
+        "price": 50.0,
+        "actual_price": 85
+      },
+      {
+        "spec": "抱枕A",
+        "price": 50.0,
+        "actual_price": 85
+      },
+      {
+        "spec": "1.5左+3右+抱枕+抱枕A（2.94m）",
+        "price": 4320.0,
+        "actual_price": 7344
+      },
+      {
+        "spec": "2.5左+2.5右+抱枕+抱枕A（3.28m）",
+        "price": 4860.0,
+        "actual_price": 8262
+      },
+      {
+        "spec": "3左+1.5无组+躺右+抱枕+抱枕A（3.76m）",
+        "price": 5910.0,
+        "actual_price": 10047
+      }
+    ]
+  },
+  "YS.6000": {
+    "name": "贝瑞",
+    "launch_date": "2025.1",
+    "sheet": "功能沙发",
+    "specs": [
+      {
+        "spec": "1左|电动|无电源",
+        "price": 1800.0,
+        "actual_price": 3060
+      },
+      {
+        "spec": "1右",
+        "price": 1300.0,
+        "actual_price": 2210
+      },
+      {
+        "spec": "1左",
+        "price": 1300.0,
+        "actual_price": 2210
+      },
+      {
+        "spec": "1无组",
+        "price": 890.0,
+        "actual_price": 1513
+      },
+      {
+        "spec": "1左电动",
+        "price": 1800.0,
+        "actual_price": 3060
+      },
+      {
+        "spec": "1右电动",
+        "price": 1800.0,
+        "actual_price": 3060
+      },
+      {
+        "spec": "1.5右",
+        "price": 1410.0,
+        "actual_price": 2397
+      },
+      {
+        "spec": "1.5左",
+        "price": 1410.0,
+        "actual_price": 2397
+      },
+      {
+        "spec": "1.5无组",
+        "price": 1030.0,
+        "actual_price": 1751
+      },
+      {
+        "spec": "1.5无组|坐宽85",
+        "price": 1040.0,
+        "actual_price": 1768
+      },
+      {
+        "spec": "1.5右|坐宽85",
+        "price": 1480.0,
+        "actual_price": 2516
+      },
+      {
+        "spec": "1.5左|坐宽85",
+        "price": 1480.0,
+        "actual_price": 2516
+      },
+      {
+        "spec": "1.5左电动|无电源",
+        "price": 2000.0,
+        "actual_price": 3400
+      },
+      {
+        "spec": "1.5左|电动|坐宽85|无电源",
+        "price": 2080.0,
+        "actual_price": 3536
+      },
+      {
+        "spec": "1.5左电动",
+        "price": 2000.0,
+        "actual_price": 3400
+      },
+      {
+        "spec": "1.5左电动|坐宽85",
+        "price": 2080.0,
+        "actual_price": 3536
+      },
+      {
+        "spec": "1.5右电动",
+        "price": 2000.0,
+        "actual_price": 3400
+      },
+      {
+        "spec": "1.5右电动|坐宽85",
+        "price": 2080.0,
+        "actual_price": 3536
+      },
+      {
+        "spec": "1单电动+1无组+1单电动|无电源",
+        "price": 4490.0,
+        "actual_price": 7633
+      },
+      {
+        "spec": "1.5无组+1.5左电动|无电源+1.5右电动",
+        "price": 5030.0,
+        "actual_price": 8551
+      },
+      {
+        "spec": "1.5无组|坐宽85+1.5左|电动|坐宽85|无电源+1.5右电动|坐宽85",
+        "price": 5200.0,
+        "actual_price": 8840
+      }
+    ]
+  },
+  "YS.6005": {
+    "name": "飞羽",
+    "launch_date": "2025.12",
+    "sheet": "功能沙发",
+    "specs": [
+      {
+        "spec": "1左|电动|无电源",
+        "price": 3040.0,
+        "actual_price": 5168
+      },
+      {
+        "spec": "1无组",
+        "price": 1400.0,
+        "actual_price": 2380
+      },
+      {
+        "spec": "1.5无组",
+        "price": 1530.0,
+        "actual_price": 2601
+      },
+      {
+        "spec": "1.5无组|坐宽85",
+        "price": 1630.0,
+        "actual_price": 2771
+      },
+      {
+        "spec": "1.5左电动|无电源",
+        "price": 3190.0,
+        "actual_price": 5423
+      },
+      {
+        "spec": "1.5左|电动|坐宽85|无电源",
+        "price": 3270.0,
+        "actual_price": 5559
+      },
+      {
+        "spec": "1左电动",
+        "price": 3170.0,
+        "actual_price": 5389
+      },
+      {
+        "spec": "1.5左电动",
+        "price": 3320.0,
+        "actual_price": 5644
+      },
+      {
+        "spec": "1.5左电动|坐宽85",
+        "price": 3430.0,
+        "actual_price": 5831
+      },
+      {
+        "spec": "1右电动",
+        "price": 3170.0,
+        "actual_price": 5389
+      },
+      {
+        "spec": "1.5右电动",
+        "price": 3320.0,
+        "actual_price": 5644
+      },
+      {
+        "spec": "1.5右电动|坐宽85",
+        "price": 3430.0,
+        "actual_price": 5831
+      },
+      {
+        "spec": "转角组|带杯托",
+        "price": 2700.0,
+        "actual_price": 4590
+      },
+      {
+        "spec": "角组",
+        "price": 2300.0,
+        "actual_price": 3910
+      },
+      {
+        "spec": "1.5右电动|坐宽85+1.5无组|坐宽85 +1.5左|电动|坐宽85|无电源（大3双2电动）",
+        "price": 8330.0,
+        "actual_price": 14161
+      },
+      {
+        "spec": "1.5右电动+1.5无组 +1.5左电动|无电源（3双2电动）",
+        "price": 8040.0,
+        "actual_price": 13668
+      },
+      {
+        "spec": "1右电动+1无组 +1左电动|无电源（小3双2电动）",
+        "price": 7610.0,
+        "actual_price": 12937
+      },
+      {
+        "spec": "1.5右电动|坐宽85+1.5无组|坐宽85 +1.5左电动|坐宽85+转角组|带杯托（转角双电动带杯托）",
+        "price": 11190.0,
+        "actual_price": 19023
+      },
+      {
+        "spec": "1.5右电动|坐宽85+1.5无组|坐宽85 +1.5左电动|坐宽85+角组（转角双电动不带杯托）",
+        "price": 10790.0,
+        "actual_price": 18343
+      }
+    ]
+  },
+  "YS.6005B": {
+    "name": "飞羽\n(按摩版)",
+    "launch_date": "2026.3",
+    "sheet": "功能沙发",
+    "specs": [
+      {
+        "spec": "1左|电动|无电源",
+        "price": 3150.0,
+        "actual_price": 5355
+      },
+      {
+        "spec": "1左电动|按摩功能|无电源",
+        "price": null,
+        "actual_price": null
+      },
+      {
+        "spec": "1右电动|按摩功能",
+        "price": 3750.0,
+        "actual_price": 6375
+      },
+      {
+        "spec": "1无组",
+        "price": 1430.0,
+        "actual_price": 2431
+      },
+      {
+        "spec": "1.5无组",
+        "price": 1530.0,
+        "actual_price": 2601
+      },
+      {
+        "spec": "1.5无组|坐宽85",
+        "price": 1630.0,
+        "actual_price": 2771
+      },
+      {
+        "spec": "1.5右电动|按摩功能",
+        "price": 3850.0,
+        "actual_price": 6545
+      },
+      {
+        "spec": "1.5左电动|无电源",
+        "price": 3250.0,
+        "actual_price": 5525
+      },
+      {
+        "spec": "1.5左|电动|坐宽85|无电源",
+        "price": 3350.0,
+        "actual_price": 5695
+      },
+      {
+        "spec": "1.5左电动|按摩功能|无电源",
+        "price": null,
+        "actual_price": null
+      },
+      {
+        "spec": "1.5左电动|按摩功能|坐宽85|无电源",
+        "price": null,
+        "actual_price": null
+      },
+      {
+        "spec": "1.5右电动|按摩功能|坐宽85",
+        "price": 3950.0,
+        "actual_price": 6715
+      },
+      {
+        "spec": "1右电动",
+        "price": null,
+        "actual_price": null
+      },
+      {
+        "spec": "1.5右电动",
+        "price": null,
+        "actual_price": null
+      },
+      {
+        "spec": "1.5右电动|坐宽85",
+        "price": null,
+        "actual_price": null
+      },
+      {
+        "spec": "转角组|带杯托",
+        "price": 2900.0,
+        "actual_price": 4930
+      },
+      {
+        "spec": "角组",
+        "price": 2400.0,
+        "actual_price": 4080
+      },
+      {
+        "spec": "1.5无组|坐宽85+1.5左|电动|坐宽85|无电源+1.5右电动|按摩功能|坐宽85（大3双2电动1按摩）",
+        "price": 8930.0,
+        "actual_price": 15181
+      },
+      {
+        "spec": "1.5无组|坐宽85+1.5左电动|按摩功能|坐宽85|无电源+1.5右电动|按摩功能|坐宽85（大3双2电动2按摩）",
+        "price": 9530.0,
+        "actual_price": 16201
+      },
+      {
+        "spec": "1.5无组+1.5右电动|按摩功能+1.5左电动|无电源（3双2电动1按摩）",
+        "price": 8630.0,
+        "actual_price": 14671
+      },
+      {
+        "spec": "1.5无组+1.5右电动|按摩功能+1.5左电动|按摩功能|无电源（3双2电动2按摩）",
+        "price": 9230.0,
+        "actual_price": 15691
+      },
+      {
+        "spec": "1左|电动|无电源+1右电动|按摩功能+1无组（小3双2电动1按摩）",
+        "price": 8330.0,
+        "actual_price": 14161
+      },
+      {
+        "spec": "1左电动|按摩功能|无电源+1右电动|按摩功能+1无组（小3双2电动2按摩）",
+        "price": 8930.0,
+        "actual_price": 15181
+      },
+      {
+        "spec": "1.5右电动|按摩功能|坐宽85+1.5无组|坐宽85 +1.5左电动|坐宽85+转角组|带杯托（大转角2电动1按摩带杯托）",
+        "price": 11830.0,
+        "actual_price": 20111
+      },
+      {
+        "spec": "1.5右电动|按摩功能|坐宽85+1.5无组|坐宽85 +1.5左电动|按摩功能|坐宽85+转角组|带杯托（大转角2电动2按摩带杯托）",
+        "price": 12430.0,
+        "actual_price": 21131
+      },
+      {
+        "spec": "1.5右电动|按摩功能|坐宽85+1.5无组|坐宽85 +1.5左电动|坐宽85+角组（大转角2电动1按摩带杯托）",
+        "price": 11330.0,
+        "actual_price": 19261
+      },
+      {
+        "spec": "1.5右电动|按摩功能|坐宽85+1.5无组|坐宽85 +1.5左电动|按摩功能|坐宽85+角组（大转角2电动2按摩带杯托）",
+        "price": 11930.0,
+        "actual_price": 20281
+      }
+    ]
+  },
+  "YS.6009": {
+    "name": "赫兹S6",
+    "launch_date": "2026.3",
+    "sheet": "功能沙发",
+    "specs": [
+      {
+        "spec": "1无组",
+        "price": 1300.0,
+        "actual_price": 2210
+      },
+      {
+        "spec": "1.5无组",
+        "price": 1430.0,
+        "actual_price": 2431
+      },
+      {
+        "spec": "1.5无组|坐宽85",
+        "price": 1530.0,
+        "actual_price": 2601
+      },
+      {
+        "spec": "1.5右电动|按摩功能",
+        "price": 3300.0,
+        "actual_price": 5610
+      },
+      {
+        "spec": "1.5左电动|无电源",
+        "price": 2800.0,
+        "actual_price": 4760
+      },
+      {
+        "spec": "1.5左|电动|坐宽85|无电源",
+        "price": 2850.0,
+        "actual_price": 4845
+      },
+      {
+        "spec": "1.5左电动|按摩功能|无电源",
+        "price": 3300.0,
+        "actual_price": 5610
+      },
+      {
+        "spec": "1.5左电动|按摩功能|坐宽85|无电源",
+        "price": 3350.0,
+        "actual_price": 5695
+      },
+      {
+        "spec": "1.5右电动|按摩功能|坐宽85",
+        "price": 3350.0,
+        "actual_price": 5695
+      },
+      {
+        "spec": "1右电动",
+        "price": 2690.0,
+        "actual_price": 4573
+      },
+      {
+        "spec": "1.5右电动",
+        "price": 2800.0,
+        "actual_price": 4760
+      },
+      {
+        "spec": "1.5右电动|坐宽85",
+        "price": 2850.0,
+        "actual_price": 4845
+      },
+      {
+        "spec": "1左电动|按摩功能|无电源",
+        "price": 3150.0,
+        "actual_price": 5355
+      },
+      {
+        "spec": "1右电动|按摩功能",
+        "price": 3150.0,
+        "actual_price": 5355
+      },
+      {
+        "spec": "1左|电动|无电源",
+        "price": 2690.0,
+        "actual_price": 4573
+      },
+      {
+        "spec": "1.5无组|坐宽85+1.5左|电动|坐宽85|无电源+1.5右电动|按摩功能|坐宽85（大3双2电动1按摩）",
+        "price": 7730.0,
+        "actual_price": 13141
+      },
+      {
+        "spec": "1.5无组|坐宽85+1.5左电动|按摩功能|坐宽85|无电源+1.5右电动|按摩功能|坐宽85（大3双2电动2按摩）",
+        "price": 8230.0,
+        "actual_price": 13991
+      },
+      {
+        "spec": "1.5右电动|坐宽85+1.5无组|坐宽85 +1.5左|电动|坐宽85|无电源（大3双2电动）",
+        "price": 7230.0,
+        "actual_price": 12291
+      },
+      {
+        "spec": "1.5无组+1.5右电动|按摩功能+1.5左电动|无电源（3双2电动1按摩）",
+        "price": 7530.0,
+        "actual_price": 12801
+      },
+      {
+        "spec": "1.5无组+1.5右电动|按摩功能+1.5左电动|按摩功能|无电源（3双2电动2按摩）",
+        "price": 8030.0,
+        "actual_price": 13651
+      },
+      {
+        "spec": "1.5右电动+1.5无组 +1.5左电动|无电源（3双2电动）",
+        "price": 7030.0,
+        "actual_price": 11951
+      },
+      {
+        "spec": "1左|电动|无电源+1右电动|按摩功能+1无组（小3双2电动1按摩）",
+        "price": 7140.0,
+        "actual_price": 12138
+      },
+      {
+        "spec": "1左电动|按摩功能|无电源+1右电动|按摩功能+1无组（小3双2电动2按摩）",
+        "price": 7600.0,
+        "actual_price": 12920
+      },
+      {
+        "spec": "1右电动+1无组 +1左电动|无电源（小3双2电动）",
+        "price": 6680.0,
+        "actual_price": 11356
+      }
+    ]
+  },
+  "YS.6022": {
+    "name": "曜影",
+    "launch_date": "2026.3",
+    "sheet": "功能沙发",
+    "specs": [
+      {
+        "spec": "1.5无组|手靠",
+        "price": 1390.0,
+        "actual_price": 2363
+      },
+      {
+        "spec": "1.5无组|手靠|坐宽85",
+        "price": 1470.0,
+        "actual_price": 2499
+      },
+      {
+        "spec": "1.5左电动|手靠|无电源|坐宽85",
+        "price": 3110.0,
+        "actual_price": 5287
+      },
+      {
+        "spec": "1.5左电动|手靠|无电源",
+        "price": 3030.0,
+        "actual_price": 5151
+      },
+      {
+        "spec": "1.5右电动|手靠|坐宽85",
+        "price": 3110.0,
+        "actual_price": 5287
+      },
+      {
+        "spec": "1.5左电动|手靠",
+        "price": 3030.0,
+        "actual_price": 5151
+      },
+      {
+        "spec": "1.5左电动|手靠|坐宽85",
+        "price": 3110.0,
+        "actual_price": 5287
+      },
+      {
+        "spec": "1.5右电动|手靠",
+        "price": 3030.0,
+        "actual_price": 5151
+      },
+      {
+        "spec": "1.5无组|手靠|坐宽85+1.5左电动|手靠|无电源|坐宽85+1.5右电动|手靠|坐宽85（大3双2电动）",
+        "price": 7690.0,
+        "actual_price": 13073
+      },
+      {
+        "spec": "1.5无组|手靠+1.5左电动|手靠|无电源+1.5右电动|手靠（3双2电动）",
+        "price": 7450.0,
+        "actual_price": 12665
+      }
+    ]
+  },
+  "YS.6007": {
+    "name": "卡布奇诺",
+    "launch_date": "2026.3",
+    "sheet": "功能沙发",
+    "specs": [
+      {
+        "spec": "1.5无组",
+        "price": 1350.0,
+        "actual_price": 2295
+      },
+      {
+        "spec": "1.5无组|坐宽85",
+        "price": 1400.0,
+        "actual_price": 2380
+      },
+      {
+        "spec": "1.5左电动|无电源",
+        "price": 2500.0,
+        "actual_price": 4250
+      },
+      {
+        "spec": "1.5左|电动|坐宽85|无电源",
+        "price": 2600.0,
+        "actual_price": 4420
+      },
+      {
+        "spec": "1.5左电动",
+        "price": 2500.0,
+        "actual_price": 4250
+      },
+      {
+        "spec": "1.5左电动|坐宽85",
+        "price": 2600.0,
+        "actual_price": 4420
+      },
+      {
+        "spec": "1.5右电动",
+        "price": 2500.0,
+        "actual_price": 4250
+      },
+      {
+        "spec": "1.5右电动|坐宽85",
+        "price": 2600.0,
+        "actual_price": 4420
+      },
+      {
+        "spec": "1.5无组|坐宽85+1.5左|电动|坐宽85|无电源+1.5右电动|坐宽85（大3双2电动）",
+        "price": 6600.0,
+        "actual_price": 11220
+      },
+      {
+        "spec": "1.5无组+1.5左电动|无电源+1.5右电动（3双2电动）",
+        "price": 6350.0,
+        "actual_price": 10795
+      }
+    ]
+  },
+  "YS.6011": {
+    "name": "漫趣",
+    "launch_date": "2026.5",
+    "sheet": "功能沙发",
+    "specs": [
+      {
+        "spec": "1无组",
+        "price": 1140.0,
+        "actual_price": 1938
+      },
+      {
+        "spec": "1左电动",
+        "price": 2400.0,
+        "actual_price": 4080
+      },
+      {
+        "spec": "1右电动",
+        "price": 2400.0,
+        "actual_price": 4080
+      },
+      {
+        "spec": "1左|电动|无电源",
+        "price": 2400.0,
+        "actual_price": 4080
+      },
+      {
+        "spec": "1.5无组",
+        "price": 1260.0,
+        "actual_price": 2142
+      },
+      {
+        "spec": "1.5左电动",
+        "price": 2530.0,
+        "actual_price": 4301
+      },
+      {
+        "spec": "1.5右电动",
+        "price": 2530.0,
+        "actual_price": 4301
+      },
+      {
+        "spec": "1.5左电动|无电源",
+        "price": 2530.0,
+        "actual_price": 4301
+      },
+      {
+        "spec": "1.5无组|坐宽85",
+        "price": 1340.0,
+        "actual_price": 2278
+      },
+      {
+        "spec": "1.5左电动|坐宽85",
+        "price": 2630.0,
+        "actual_price": 4471
+      },
+      {
+        "spec": "1.5右电动|坐宽85",
+        "price": 2630.0,
+        "actual_price": 4471
+      },
+      {
+        "spec": "1.5左|电动|坐宽85|无电源",
+        "price": 2630.0,
+        "actual_price": 4471
+      },
+      {
+        "spec": "1.5无组|坐宽85+1.5左|电动|坐宽85|无电源+1.5右电动|坐宽85（大3双2电动）",
+        "price": 6600.0,
+        "actual_price": 11220
+      },
+      {
+        "spec": "1.5无组+1.5左电动|无电源+1.5右电动（3双2电动）",
+        "price": 6320.0,
+        "actual_price": 10744
+      },
+      {
+        "spec": "1无组+1左电动|无电源+1右电动（小3双2电动）",
+        "price": 5940.0,
+        "actual_price": 10098
+      }
+    ]
+  },
+  "YS.6021": {
+    "name": "缤纷",
+    "launch_date": "2026.7",
+    "sheet": "功能沙发",
+    "specs": [
+      {
+        "spec": "1左|电动|无电源",
+        "price": 1690.0,
+        "actual_price": 2873
+      },
+      {
+        "spec": "1右",
+        "price": 1490.0,
+        "actual_price": 2533
+      },
+      {
+        "spec": "1左",
+        "price": 1490.0,
+        "actual_price": 2533
+      },
+      {
+        "spec": "1.5右",
+        "price": 1680.0,
+        "actual_price": 2856
+      },
+      {
+        "spec": "1.5左",
+        "price": 1680.0,
+        "actual_price": 2856
+      },
+      {
+        "spec": "1无组",
+        "price": 790.0,
+        "actual_price": 1343
+      },
+      {
+        "spec": "1.5无组",
+        "price": 930.0,
+        "actual_price": 1581
+      },
+      {
+        "spec": "1.5无组|坐宽85",
+        "price": 950.0,
+        "actual_price": 1615
+      },
+      {
+        "spec": "1.5右|坐宽85",
+        "price": 1670.0,
+        "actual_price": 2839
+      },
+      {
+        "spec": "1.5左|坐宽85",
+        "price": 1670.0,
+        "actual_price": 2839
+      },
+      {
+        "spec": "1.5左电动|无电源",
+        "price": 1880.0,
+        "actual_price": 3196
+      },
+      {
+        "spec": "1.5左|电动|坐宽85|无电源",
+        "price": 1870.0,
+        "actual_price": 3179
+      },
+      {
+        "spec": "1左电动",
+        "price": 1690.0,
+        "actual_price": 2873
+      },
+      {
+        "spec": "1.5左电动",
+        "price": 1880.0,
+        "actual_price": 3196
+      },
+      {
+        "spec": "1.5左电动|坐宽85",
+        "price": 1870.0,
+        "actual_price": 3179
+      },
+      {
+        "spec": "1右电动",
+        "price": 1690.0,
+        "actual_price": 2873
+      },
+      {
+        "spec": "1.5右电动",
+        "price": 1880.0,
+        "actual_price": 3196
+      },
+      {
+        "spec": "1.5右电动|坐宽85",
+        "price": 1870.0,
+        "actual_price": 3179
+      },
+      {
+        "spec": "1.5无组|坐宽85+1.5左|电动|坐宽85|无电源+1.5右电动|坐宽85（大3双2电动）",
+        "price": 4690.0,
+        "actual_price": 7973
+      },
+      {
+        "spec": "1.5无组+1.5左电动|无电源+1.5右电动（3双2电动）",
+        "price": 4690.0,
+        "actual_price": 7973
+      },
+      {
+        "spec": "1无组+1左电动|无电源+1右电动（小3双2电动）",
+        "price": 4170.0,
+        "actual_price": 7089
+      }
+    ]
+  }
+}

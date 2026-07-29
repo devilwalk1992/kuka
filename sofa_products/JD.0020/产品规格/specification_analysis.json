@@ -1,0 +1,187 @@
+{
+  "image_info": {
+    "file": "企业微信截图_17852072175776.png",
+    "size": "376x358",
+    "description": "企业微信截图，展示产品规格组合及发货时间",
+    "note": "该图片中仅包含产品规格组合名称和发货时间（21天起可发/30天起可发），不包含批发价格。批发价格数据来源于jd0020_price.txt文件。"
+  },
+  "individual_components": [
+    {
+      "spec": "1.5右",
+      "wholesale_price": 1980,
+      "retail_price": 6800
+    },
+    {
+      "spec": "1.5左",
+      "wholesale_price": 1980,
+      "retail_price": 6800
+    },
+    {
+      "spec": "1.5左A",
+      "wholesale_price": 1870,
+      "retail_price": 6300
+    },
+    {
+      "spec": "1.5右A",
+      "wholesale_price": 1870,
+      "retail_price": 6300
+    },
+    {
+      "spec": "1.5左|坐宽90",
+      "wholesale_price": 1980,
+      "retail_price": 6800,
+      "special_note": "坐宽90"
+    },
+    {
+      "spec": "1.5右|坐宽90",
+      "wholesale_price": 1980,
+      "retail_price": 6800,
+      "special_note": "坐宽90"
+    },
+    {
+      "spec": "2右",
+      "wholesale_price": 2400,
+      "retail_price": 8145
+    },
+    {
+      "spec": "2左",
+      "wholesale_price": 2400,
+      "retail_price": 8145
+    },
+    {
+      "spec": "3右",
+      "wholesale_price": 3170,
+      "retail_price": 10790
+    },
+    {
+      "spec": "3左",
+      "wholesale_price": 3170,
+      "retail_price": 10790
+    },
+    {
+      "spec": "3左|坐宽90",
+      "wholesale_price": 3170,
+      "retail_price": 10790,
+      "special_note": "坐宽90"
+    },
+    {
+      "spec": "3左A",
+      "wholesale_price": 2930,
+      "retail_price": 9990
+    },
+    {
+      "spec": "3右A",
+      "wholesale_price": 2930,
+      "retail_price": 9990
+    },
+    {
+      "spec": "3右|坐宽90",
+      "wholesale_price": 3170,
+      "retail_price": 10790,
+      "special_note": "坐宽90"
+    },
+    {
+      "spec": "躺右",
+      "wholesale_price": 2530,
+      "retail_price": 8600
+    },
+    {
+      "spec": "躺左",
+      "wholesale_price": 2530,
+      "retail_price": 8600
+    },
+    {
+      "spec": "躺右A",
+      "wholesale_price": 2530,
+      "retail_price": 8600
+    },
+    {
+      "spec": "躺左A",
+      "wholesale_price": 2530,
+      "retail_price": 8600
+    }
+  ],
+  "combinations": [
+    {
+      "spec": "1.5右A+3左A",
+      "lead_time": "21天起可发",
+      "wholesale_price": 4800,
+      "retail_price": 16290,
+      "components": ["1.5右A", "3左A"]
+    },
+    {
+      "spec": "1.5右|坐宽90+3左|坐宽90",
+      "lead_time": "21天起可发",
+      "wholesale_price": 5150,
+      "retail_price": 17590,
+      "special_note": "坐宽90",
+      "components": ["1.5右|坐宽90", "3左|坐宽90"]
+    },
+    {
+      "spec": "1.5右+3左",
+      "lead_time": "21天起可发",
+      "wholesale_price": 5150,
+      "retail_price": 17590,
+      "components": ["1.5右", "3左"]
+    },
+    {
+      "spec": "3左+躺右",
+      "lead_time": "30天起可发",
+      "wholesale_price": 5700,
+      "retail_price": 19390,
+      "components": ["3左", "躺右"]
+    },
+    {
+      "spec": "2右+2左",
+      "lead_time": "30天起可发",
+      "wholesale_price": 4800,
+      "retail_price": 16290,
+      "components": ["2右", "2左"]
+    },
+    {
+      "spec": "3左|坐宽90+躺右A",
+      "lead_time": "30天起可发",
+      "wholesale_price": 5700,
+      "retail_price": 19390,
+      "special_note": "坐宽90",
+      "components": ["3左|坐宽90", "躺右A"]
+    },
+    {
+      "spec": "3右|坐宽90+躺左A",
+      "lead_time": "30天起可发",
+      "wholesale_price": null,
+      "retail_price": null,
+      "special_note": "坐宽90",
+      "components": ["3右|坐宽90", "躺左A"],
+      "price_note": "该组合在价格表中未找到对应条目"
+    },
+    {
+      "spec": "3右+躺左",
+      "lead_time": "30天起可发",
+      "wholesale_price": null,
+      "retail_price": null,
+      "components": ["3右", "躺左"],
+      "price_note": "该组合在价格表中未找到对应条目"
+    },
+    {
+      "spec": "3左A+3右A",
+      "lead_time": "30天起可发",
+      "wholesale_price": null,
+      "retail_price": null,
+      "components": ["3左A", "3右A"],
+      "price_note": "该组合在价格表中未找到对应条目"
+    },
+    {
+      "spec": "3左|坐宽90+3右|坐宽90",
+      "lead_time": "30天起可发",
+      "wholesale_price": null,
+      "retail_price": null,
+      "special_note": "坐宽90",
+      "components": ["3左|坐宽90", "3右|坐宽90"],
+      "price_note": "该组合在价格表中未找到对应条目"
+    }
+  ],
+  "special_markings": {
+    "坐宽90": "图中标注了多个含「坐宽90」的特殊规格，包括：1.5右|坐宽90、1.5左|坐宽90、3左|坐宽90、3右|坐宽90等单规格，以及1.5右|坐宽90+3左|坐宽90、3左|坐宽90+躺右A、3右|坐宽90+躺左A、3左|坐宽90+3右|坐宽90等组合规格。带「坐宽90」的1.5规格批发价为1980，3规格批发价为3170，均与不带坐宽90的常规规格同价。"
+  }
+}
