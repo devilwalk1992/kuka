@@ -29,9 +29,9 @@ CATEGORY_MAP = {"沙发": "沙发", "床": "床架", "床垫": "床垫", "配套
 
 
 # ==================== 3. 产品索引构建（解析 MD → 结构化数据）====================
-def _extract_price_rows(text, max_rows=8):
+def _extract_price_rows(text, category, max_rows=8):
     """提取MD文件中规格-价格行，返回格式化的列表
-    例如：['1.5右 → 126cm, ¥5,099', '1.5左 → 126cm, ¥5,099']"""
+    沙发只保留组合规格（含 + 号），床/床垫/配套保留所有规格"""
     rows = []
     for line in text.split('\n'):
         stripped = line.strip()
@@ -73,8 +73,8 @@ def _extract_price_rows(text, max_rows=8):
         price_clean = raw_price.replace('¥', '').replace('￥', '').replace('元', '').replace(',', '').strip()
         if re.match(r'^\d{3,}$', price_clean):
             formatted = f"{spec_name} → {size_col}, ¥{int(price_clean):,}"
-            # 只保留组合规格（含 + 号），过滤单独的规格
-            if '+' in spec_name:
+            # 沙发只保留组合规格（含 + 号），床/床垫/配套保留所有规格
+            if category != "沙发" or '+' in spec_name:
                 rows.append(formatted)
         if len(rows) >= max_rows:
             break
@@ -202,7 +202,7 @@ def _parse_md_product(filepath, rel_path):
         "specs": specs[:3],
         "bed_frame_height": bed_frame_height,
         "mattress_thickness": mattress_thickness,
-        "price_rows": _extract_price_rows(text, max_rows=8),
+        "price_rows": _extract_price_rows(text, category, max_rows=8),
     }
 
 
