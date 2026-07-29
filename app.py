@@ -551,14 +551,14 @@ with main_tab1:
             with col_c2:
                 floor_color = st.selectbox("地面材质", ["亮光灰色", "亮光白色", "哑光灰色", "哑光奶咖", "柔光奶咖", "暗色岩板", "胡桃色木纹砖"])
 
-        with st.expander("🛒 2. 客厅与餐厨采购清单", expanded=False):
+        with st.expander("🛒 2. 客厅与餐厨采购清单", expanded=True):
             col_c1, col_c2 = st.columns(2)
             with col_c1:
-                need_sofa = st.checkbox("🛋️ 沙发", value=True)
+                need_sofa = st.checkbox("🛋️ 沙发", value=False)
                 need_chair = st.checkbox("🪑 单人休闲椅", value=False)
-                need_table = st.checkbox("☕ 茶几", value=True)
+                need_table = st.checkbox("☕ 茶几", value=False)
             with col_c2:
-                need_tv = st.checkbox("📺 电视柜", value=True)
+                need_tv = st.checkbox("📺 电视柜", value=False)
                 need_dining = st.checkbox("🍽️ 餐桌椅组合", value=False)
 
         with st.expander("🛏️ 3. 卧室配置与睡眠偏好", expanded=True):
@@ -570,7 +570,7 @@ with main_tab1:
                 "软硬适中/浮法乳胶层（微环境透气/全家通用）",
                 "高性价比舒适床垫"
             ]
-            selected_rooms = st.multiselect("选择配置的卧室：", options=ROOM_TYPES, default=["主卧", "次卧/客卧"])
+            selected_rooms = st.multiselect("选择配置的卧室：", options=ROOM_TYPES, default=[])
             bedroom_configs = []
             for r_name in selected_rooms:
                 st.markdown(f"**📌 {r_name}**")
@@ -588,11 +588,11 @@ with main_tab1:
                 bedroom_configs.append({"room_name": r_name, "hb_limit": f"{hb_limit}米", "bed_spec": bed_spec, "mat_pref": mat_pref})
 
         with st.expander("💰 4. 预算与特殊需求", expanded=True):
-            total_budget = st.number_input("全屋采购总预算 (元)", min_value=5000, max_value=500000, value=35000, step=1000)
+            total_budget = st.number_input("全屋采购总预算 (元)", min_value=5000, max_value=500000, value=5000, step=1000)
             special_tags = st.multiselect(
                 "特殊功能需求：",
                 options=["电动零重力 / 智能功能沙发", "养宠家庭（防抓擦/防粘毛）", "有婴幼儿（防磕碰圆角）", "扫地机器人进出（离地>12cm）", "腰椎保护/偏硬支撑", "去电视化/自由组合模块"],
-                default=["电动零重力 / 智能功能沙发"]
+                default=[]
             )
             custom_notes = st.text_input("补充备注：", placeholder="例如：主卧想要头层牛皮床、床垫不要太厚等...")
 
