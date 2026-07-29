@@ -243,23 +243,23 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, ke
         if len(candidates) >= 10:
             break
 
-    # 生成精简摘要文本
+    # 生成精简摘要文本（用 .get() 安全读取，兼容旧缓存）
     lines = []
     for p in candidates:
-        line = f"- {p['model']} {p['name']} | {p['series']} | 价格区间: ¥{p['min_price']:,}~¥{p['max_price']:,}"
-        if p["lengths"]:
+        line = f"- {p.get('model', '?')} {p.get('name', '?')} | {p.get('series', '')} | 价格区间: ¥{p.get('min_price', 0):,}~¥{p.get('max_price', 0):,}"
+        if p.get("lengths"):
             line += f" | 可选长度(CM): {', '.join(str(l) for l in p['lengths'])}"
-        if p["specs"]:
+        if p.get("specs"):
             line += f" | 规格: {', '.join(p['specs'][:3])}"
-        if p["colors"]:
+        if p.get("colors"):
             line += f" | 配色: {'/'.join(p['colors'][:2])}"
-        if p["bed_frame_height"]:
+        if p.get("bed_frame_height"):
             line += f" | 床身高度: {p['bed_frame_height']}cm"
-        if p["mattress_thickness"]:
+        if p.get("mattress_thickness"):
             line += f" | 适配床垫厚度: {p['mattress_thickness']}"
-        if p["tagline"]:
+        if p.get("tagline"):
             line += f" | 卖点: {p['tagline']}"
-        if p["features"]:
+        if p.get("features"):
             line += f" | 特点: {'; '.join(p['features'][:2])}"
         lines.append(line)
 
