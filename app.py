@@ -7,343 +7,529 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ==================== 1. 页面基本配置 ====================
+# ==================== 1. 页面配置 ====================
 st.set_page_config(
-    page_title="KUKA 赛博软装与睡眠主理人 - DeepSeek AI 导购系统",
+    page_title="KUKA 赛博软装与睡眠主理人",
     page_icon="🛋️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# 优先用 __file__ 定位脚本所在目录
+# ==================== 2. 路径 ====================
 try:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 except Exception:
     BASE_DIR = os.getcwd()
 MD_DB_DIR = os.path.join(BASE_DIR, "markdown_db")
-# fallback: 若 __file__ 路径找不到，尝试相对路径
 if not os.path.exists(MD_DB_DIR):
     MD_DB_DIR = os.path.join(os.getcwd(), "markdown_db")
 JSON_INDEX_PATH = os.path.join(MD_DB_DIR, "product_images.json")
 
+CATEGORY_MAP = {"沙发": "沙发", "床": "床架", "床垫": "床垫", "配套": "配套"}
 
-# ==================== 2. 本地数据库读取 ====================
-@st.cache_data(ttl=3600)
-def load_database():
-    """读取 Markdown 数据库与 JSON 图文索引"""
-    knowledge_base = ""
-    if os.path.exists(MD_DB_DIR):
-        for root, dirs, files in os.walk(MD_DB_DIR):
-            for file in files:
-                if file.endswith(".md"):
-                    file_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(file_path, MD_DB_DIR)
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        knowledge_base += f"\n\n--- 档案文件: {rel_path} ---\n" + f.read()
 
-    images_db = {}
+# ==================== 3. 产品索引构建（解析 MD → 结构化数据）====================
+def _parse_md_product(filepath, rel_path):
+    """解析单个 md 文件，返回结构化产品字典"""
+    with open(filepath, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    folder = rel_path.split(os.path.sep)[0]
+    category = CATEGORY_MAP.get(folder, folder)
+    model = os.path.splitext(os.path.basename(filepath))[0]
+
+    # 产品名称
+    name_match = re.search(r'\*\*产品名称\*\*\s*:\s*(.+)', text)
+    name = name_match.group(1).strip() if name_match else model
+
+    # 产品线/系列
+    series_match = re.search(r'\*\*产品线\*\*\s*:\s*(.+)', text)
+    series = series_match.group(1).strip() if series_match else ""
+
+    # 产品特点（取前 3 条）
+    features = []
+    in_features = False
+    for line in text.split("\n"):
+        if "产品特点" in line:
+            in_features = True
+            continue
+        if in_features:
+            if line.strip().startswith("- "):
+                features.append(line.strip()[2:])
+            elif line.strip() == "":
+                if features:
+                    break
+            elif line.startswith("##") or line.startswith("###"):
+                if features:
+                    break
+
+    # 一句话价值塑造
+    value_match = re.search(r'### 一句话价值塑造\s*\n+\s*(.+?)(?:\n|$)', text)
+    tagline = value_match.group(1).strip() if value_match else ""
+
+    # 配色
+    colors = []
+    in_color = False
+    for line in text.split("\n"):
+        if "配色与材质" in line:
+            in_color = True
+            continue
+        if in_color and line.strip().startswith("|") and not line.strip().startswith("|--"):
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) >= 2:
+                colors.append(parts[1])
+
+    # 价格范围（过滤掉型号名中的数字和 UUID/路径中的数字）
+    prices = []
+    model_nums = set(re.findall(r'\d+', model))
+    for m in re.finditer(r'[¥￥]?([\d,]+)\s*(?:元|）)?', text):
+        try:
+            p = int(m.group(1).replace(",", ""))
+            if not (500 <= p <= 200000):
+                continue
+            if any(str(p) == n for n in model_nums):
+                continue
+            # 排除 UUID/文件名中的数字（数字前后紧挨着字母或"-"则不是价格）
+            ctx_before = text[max(0, m.start()-1):m.start()]
+            ctx_after = text[m.end():min(len(text), m.end()+1)]
+            if re.search(r'[a-zA-Z-]', ctx_before + ctx_after):
+                continue
+            prices.append(p)
+        except ValueError:
+            pass
+    min_price = min(prices) if prices else 0
+    max_price = max(prices) if prices else 0
+
+    # 沙发：提取所有长度（从规格尺寸表）
+    lengths = []
+    spec_section = re.search(r'### 规格尺寸\s*\n\|.+?\n(\|.+\n?)+', text)
+    if spec_section:
+        for line in spec_section.group(0).split("\n"):
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) >= 2:
+                # 尝试解析长度数值
+                nums = re.findall(r'(\d{2,3})\s*(?:CM|cm|厘米)?', parts[-2] if len(parts) >= 2 else "")
+                for n in nums:
+                    v = int(n)
+                    if 40 < v < 600:
+                        lengths.append(v)
+
+    # 床 / 配套：提取规格
+    specs = []
+    if category in ("床架", "配套"):
+        spec_section = re.search(r'\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|', text)
+        if spec_section:
+            for line in text.split("\n"):
+                if line.strip().startswith("|") and "实际成交价" not in line:
+                    parts = [p.strip() for p in line.split("|") if p.strip()]
+                    if len(parts) >= 3 and re.search(r'\d{3,}', parts[1]):
+                        specs.append(parts[1])
+
+    return {
+        "model": model,
+        "name": name,
+        "category": category,
+        "series": series,
+        "tagline": tagline[:80],
+        "features": features[:3],
+        "colors": colors[:3],
+        "min_price": min_price,
+        "max_price": max_price,
+        "lengths": sorted(set(lengths)),
+        "specs": specs[:3],
+    }
+
+
+@st.cache_data(show_spinner=False, ttl=86400)
+def build_product_index_v3():
+    """扫描所有 md 文件，构建可搜索的产品索引"""
+    index = {}
+    if not os.path.exists(MD_DB_DIR):
+        return index, ""
+    for root, dirs, files in os.walk(MD_DB_DIR):
+        for file in files:
+            if not file.endswith(".md"):
+                continue
+            fp = os.path.join(root, file)
+            rel = os.path.relpath(fp, MD_DB_DIR)
+            try:
+                p = _parse_md_product(fp, rel)
+                index[p["model"]] = p
+            except Exception:
+                continue
+    return index, ""
+
+
+@st.cache_data(show_spinner=False, ttl=86400)
+def load_images_v2():
+    """仅加载图片索引"""
+    imgs = {}
     if os.path.exists(JSON_INDEX_PATH):
         with open(JSON_INDEX_PATH, "r", encoding="utf-8") as f:
-            images_db = json.load(f)
-
-        # 将图片路径转为绝对路径
-        for folder_key, img_dict in images_db.items():
+            imgs = json.load(f)
+        for k, v in imgs.items():
             for key in ("catalog_images", "scene_images", "home_images", "real_images"):
-                if key in img_dict and img_dict[key]:
-                    img_dict[key] = [
-                        os.path.join(BASE_DIR, p) if not os.path.isabs(p) else p
-                        for p in img_dict[key]
-                    ]
-
-    return knowledge_base, images_db
-
-knowledge_base, images_db = load_database()
+                if key in v and v[key]:
+                    v[key] = [os.path.join(BASE_DIR, p) if not os.path.isabs(p) else p for p in v[key]]
+    return imgs
 
 
-# ==================== 3. 侧边栏 (Sidebar) - API 设置 ====================
+product_index, _ = build_product_index_v3()
+images_db = load_images_v2()
+
+
+# ==================== 4. 预筛选函数（纯 Python，微秒级）====================
+def filter_candidates(index, category=None, max_price=None, sofa_length=None, keywords=None):
+    """从产品索引中快速筛选候选产品
+    返回：候选产品列表 + 精简摘要文本（供 LLM 使用）"""
+    candidates = []
+    for model, p in index.items():
+        # 品类拦截
+        if category and p["category"] != category:
+            continue
+        # 预算拦截（仅排除所有规格都超预算的产品）
+        if max_price and p["min_price"] > 0 and p["min_price"] > max_price:
+            continue
+        # 沙发长度拦截（背景墙的 70%~85%）
+        if sofa_length and p["lengths"]:
+            ok = any(sofa_length * 0.7 <= l <= sofa_length * 0.85 for l in p["lengths"])
+            if not ok:
+                continue
+        # 关键词拦截
+        if keywords:
+            kw_lower = keywords.lower()
+            haystack = f"{p['category']} {model} {p['name']} {p['series']} {' '.join(p['features'])}".lower()
+            if kw_lower not in haystack:
+                continue
+
+        candidates.append(p)
+        if len(candidates) >= 10:
+            break
+
+    # 生成精简摘要文本
+    lines = []
+    for p in candidates:
+        line = f"- {p['model']} {p['name']} | {p['series']} | 价格区间: ¥{p['min_price']:,}~¥{p['max_price']:,}"
+        if p["lengths"]:
+            line += f" | 可选长度(CM): {', '.join(str(l) for l in p['lengths'])}"
+        if p["specs"]:
+            line += f" | 规格: {', '.join(p['specs'][:3])}"
+        if p["colors"]:
+            line += f" | 配色: {'/'.join(p['colors'][:2])}"
+        if p["tagline"]:
+            line += f" | 卖点: {p['tagline']}"
+        if p["features"]:
+            line += f" | 特点: {'; '.join(p['features'][:2])}"
+        lines.append(line)
+
+    summary = "\n".join(lines) if lines else "（无匹配产品）"
+    return candidates, summary
+
+
+# ==================== 5. 流式生成器 ====================
+def _get_client(api_key):
+    return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+
+
+def stream_response(api_key, model, system_prompt, user_prompt):
+    client = _get_client(api_key)
+    stream = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        stream=True,
+        temperature=0.2
+    )
+    for chunk in stream:
+        if chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
+
+# ==================== 6. CSS ====================
+st.markdown("""
+<style>
+    .stApp { background-color: #f8f9fa; }
+    .main-header { font-size:2.2rem; font-weight:700; color:#1e293b; margin-bottom:0.5rem; }
+    .sub-header { font-size:1.0rem; color:#64748b; margin-bottom:1.5rem; }
+    div[data-testid="stExpander"] { background-color:#fff; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.04); }
+    .stButton>button { width:100%; background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%); color:#fff; border-radius:8px; border:none; padding:0.6rem 1rem; font-weight:600; font-size:1rem; box-shadow:0 4px 10px rgba(37,99,235,0.2); }
+    .stButton>button:hover { background:linear-gradient(135deg,#1d4ed8 0%,#1e40af 100%); box-shadow:0 6px 15px rgba(37,99,235,0.3); }
+    section[data-testid="stSidebar"] { background-color:#fff; border-right:1px solid #e2e8f0; }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ==================== 7. 侧边栏 ====================
 with st.sidebar:
     st.header("⚙️ DeepSeek API 设置")
-    api_key = st.text_input(
-        "DeepSeek API Key",
-        type="password",
-        value=os.getenv("DEEPSEEK_API_KEY", ""),
-        placeholder="sk-...",
-        help="优先读取 .env 文件中的 DEEPSEEK_API_KEY"
-    )
-
-    model_name = st.selectbox(
-        "模型选择",
-        ["deepseek-v4-flash", "deepseek-v4-pro"],
-        index=0,
-        help="deepseek-v4-flash 为 DeepSeek-V4 快速模型（推荐）；deepseek-v4-pro 为专业推理模型"
-    )
-
+    # 优先级：.env → st.secrets（Streamlit Cloud）→ 手动输入
+    try:
+        default_key = os.getenv("DEEPSEEK_API_KEY", "") or st.secrets.get("DEEPSEEK_API_KEY", "")
+    except Exception:
+        default_key = os.getenv("DEEPSEEK_API_KEY", "")
+    api_key = st.text_input("API Key（留空使用 secrets）", type="password", value=default_key, placeholder="sk-...")
+    model_name = st.selectbox("模型选择", ["deepseek-v4-flash", "deepseek-v4-pro"], index=0)
     st.divider()
     st.header("📊 数据库状态")
-    if knowledge_base:
-        st.success(f"✅ 知识库已就绪\n(包含 {len(images_db)} 个产品映射)")
-    else:
-        st.warning("⚠️ 未找到 markdown_db 目录，请先运行 build_full_database.py")
+    st.success(f"✅ {len(product_index)} 个产品已索引\n({len(images_db)} 个图片映射)")
+    # 诊断：各品类产品数
+    cat_counts = {}
+    for p in product_index.values():
+        c = p["category"]
+        cat_counts[c] = cat_counts.get(c, 0) + 1
+    debug_lines = [f"{k}: {v}个" for k, v in sorted(cat_counts.items())]
+    st.caption("📌 品类分布: " + " | ".join(debug_lines) if debug_lines else "⚠️ 索引为空")
+
+    # 紧急诊断：检查目录和文件
+    md_files_found = 0
+    if os.path.exists(MD_DB_DIR):
+        for root, dirs, files in os.walk(MD_DB_DIR):
+            for f in files:
+                if f.endswith(".md"):
+                    md_files_found += 1
+    st.caption(f"📁 markdown_db: {'存在' if os.path.exists(MD_DB_DIR) else '不存在'} | .md文件数: {md_files_found}")
+    st.divider()
+    st.caption("💡 版本: `ai导购助手0.0.0.2`")
 
 
-# ==================== 4. 主界面 Header & 功能 Tab 切换 ====================
-st.title("🛋️ KUKA 赛博软装与睡眠主理人 · 智能导购工作台")
+# ==================== 8. 顶部 Header ====================
+st.markdown('<div class="main-header">🛋️ KUKA 赛博软装与睡眠主理人</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">基于空间几何计算与 DeepSeek AI 大模型的智能全屋配齐系统</div>', unsafe_allow_html=True)
 
-main_tab1, main_tab2 = st.tabs(["🏠 全屋 AI 软装与睡眠方案生成", "🔍 导购全品类速查助手（床/床垫/沙发）"])
+# ==================== 9. Tab ====================
+main_tab1, main_tab2 = st.tabs(["🏠 全屋 AI 软装与睡眠方案生成", "🔍 导购全品类速查助手"])
 
 
 # =========================================================================
-# 【Tab 1】：全屋 AI 软装与睡眠方案搭配生成
+# Tab 1
 # =========================================================================
 with main_tab1:
-    col_left, col_right = st.columns([1, 1], gap="large")
+    col_left, col_right = st.columns([1, 1.3], gap="large")
 
-    # -------------------- 【左侧列】：客户空间与需求录入区 --------------------
     with col_left:
-        st.subheader("🏠 1. 客厅空间与硬装环境")
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            room_width = st.number_input("客厅开间/视距 (米)", min_value=2.0, max_value=8.0, value=3.6, step=0.1)
-            wall_color = st.selectbox("墙面颜色", ["奶咖色/大白墙", "浅灰色", "原木色系", "暗色极简"])
-            style_pref = st.selectbox("整体装修风格", ["意式极简", "法式奶油风", "现代轻奢", "极简风", "原木风", "新中式"])
-        with col_s2:
-            sofa_wall_len = st.number_input("沙发背景墙长度 (米)", min_value=2.0, max_value=8.0, value=4.2, step=0.1)
-            floor_color = st.selectbox("地面材质", ["浅色亮光地砖", "柔光大理石砖", "原木地板", "灰调地砖"])
+        st.subheader("📋 空间需求与预算录入")
 
-        st.subheader("🛒 2. 客厅与餐厨采购清单")
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            need_sofa = st.checkbox("🛋️ 沙发", value=True)
-            need_chair = st.checkbox("🪑 单人休闲椅", value=False)
-            need_table = st.checkbox("☕ 茶几", value=True)
-        with col_c2:
-            need_tv = st.checkbox("📺 电视柜", value=True)
-            need_dining = st.checkbox("🍽️ 餐桌椅组合", value=False)
+        with st.expander("🏠 1. 客厅环境与风格", expanded=True):
+            style_pref = st.selectbox("装修风格偏好", ["意式极简", "法式奶油风", "现代轻奢", "极简风", "原木风", "新中式"])
+            col_dim1, col_dim2 = st.columns(2)
+            with col_dim1:
+                room_width = st.number_input("客厅开间/视距 (米)", min_value=2.0, max_value=8.0, value=3.6, step=0.1)
+            with col_dim2:
+                sofa_wall_len = st.number_input("沙发背景墙长度 (米)", min_value=2.0, max_value=8.0, value=4.2, step=0.1)
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                wall_color = st.selectbox("墙面颜色", ["奶咖色/大白墙", "浅灰色", "原木色系", "暗色极简"])
+            with col_c2:
+                floor_color = st.selectbox("地面材质", ["浅色亮光地砖", "柔光大理石砖", "原木地板", "灰调地砖"])
 
-        st.subheader("🛏️ 3. 卧室空间与睡眠健康配置")
-        ROOM_TYPES = ["主卧", "儿子房", "女儿房", "老人房", "次卧/客卧"]
-        MATTRESS_TYPES = [
-            "高端护脊/独立弹簧（适合主卧/深睡释压）",
-            "青少年/儿童护脊床垫（防脊柱弯曲/高支撑）",
-            "硬挺护脊/天然棕榈（适合老人/习惯睡硬床）",
-            "软硬适中/浮法乳胶层（微环境透气/全家通用）",
-            "高性价比舒适床垫"
-        ]
+        with st.expander("🛒 2. 客厅与餐厨采购清单", expanded=False):
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                need_sofa = st.checkbox("🛋️ 沙发", value=True)
+                need_chair = st.checkbox("🪑 单人休闲椅", value=False)
+                need_table = st.checkbox("☕ 茶几", value=True)
+            with col_c2:
+                need_tv = st.checkbox("📺 电视柜", value=True)
+                need_dining = st.checkbox("🍽️ 餐桌椅组合", value=False)
 
-        selected_rooms = st.multiselect("选择配置的卧室：", options=ROOM_TYPES, default=["主卧", "次卧/客卧"])
-
-        bedroom_configs = []
-        for r_name in selected_rooms:
-            with st.expander(f"📌 【{r_name}】尺寸与睡眠健康偏好", expanded=(r_name == "主卧")):
+        with st.expander("🛏️ 3. 卧室配置与睡眠偏好", expanded=True):
+            ROOM_TYPES = ["主卧", "儿子房", "女儿房", "老人房", "次卧/客卧"]
+            MATTRESS_TYPES = [
+                "高端护脊/独立弹簧（适合主卧/深睡释压）",
+                "青少年/儿童护脊床垫（防脊柱弯曲/高支撑）",
+                "硬挺护脊/天然棕榈（适合老人/习惯睡硬床）",
+                "软硬适中/浮法乳胶层（微环境透气/全家通用）",
+                "高性价比舒适床垫"
+            ]
+            selected_rooms = st.multiselect("选择配置的卧室：", options=ROOM_TYPES, default=["主卧", "次卧/客卧"])
+            bedroom_configs = []
+            for r_name in selected_rooms:
+                st.markdown(f"**📌 {r_name}**")
                 col_b1, col_b2 = st.columns(2)
                 with col_b1:
-                    hb_limit = st.number_input(
-                        f"{r_name} 床头墙允许最大净宽 (米)",
-                        min_value=1.2, max_value=4.0,
-                        value=2.2 if r_name == "主卧" else 1.8,
-                        step=0.05, key=f"hb_{r_name}",
-                        help="预留开关插座及两侧通道后的净宽度"
-                    )
-                    bed_spec = st.selectbox(
-                        f"{r_name} 床架规格",
-                        ["1.8米床 (180*200cm)", "1.5米床 (150*200cm)", "1.2米床 (120*200cm)"],
-                        key=f"bs_{r_name}"
-                    )
+                    hb_limit = st.number_input(f"{r_name} 床头墙允许最大净宽 (米)", min_value=1.2, max_value=4.0, value=2.2 if r_name == "主卧" else 1.8, step=0.05, key=f"hb_{r_name}")
+                    bed_spec = st.selectbox(f"{r_name} 床架规格", ["1.8米床 (180*200cm)", "1.5米床 (150*200cm)", "1.2米床 (120*200cm)"], key=f"bs_{r_name}")
                 with col_b2:
                     need_mat = st.checkbox(f"为{r_name}选配床垫", value=True, key=f"mc_{r_name}")
-
                     def_idx = 0
                     if "儿子" in r_name or "女儿" in r_name: def_idx = 1
                     elif "老人" in r_name: def_idx = 2
                     elif "次卧" in r_name: def_idx = 4
-
                     mat_pref = st.selectbox(f"{r_name} 床垫类型", MATTRESS_TYPES, index=def_idx, key=f"mp_{r_name}") if need_mat else "不需要床垫"
+                bedroom_configs.append({"room_name": r_name, "hb_limit": f"{hb_limit}米", "bed_spec": bed_spec, "mat_pref": mat_pref})
 
-                bedroom_configs.append({
-                    "room_name": r_name, "hb_limit": f"{hb_limit}米",
-                    "bed_spec": bed_spec, "mat_pref": mat_pref
-                })
-
-        st.subheader("💰 4. 全屋采购总预算")
-        total_budget = st.number_input("采购总预算 (元)", min_value=5000, max_value=500000, value=35000, step=1000)
-
-        st.subheader("✨ 5. 自定义与特殊需求")
-        special_tags = st.multiselect(
-            "特殊功能与健康偏好（可多选）：",
-            options=[
-                "电动零重力 / 智能功能沙发",
-                "养宠家庭（需防抓擦 / 防粘毛面料）",
-                "有婴幼儿（需防磕碰圆角 / 低矮安全设计）",
-                "扫地机器人进出（离地高脚 >12cm）",
-                "腰椎保护 / 偏硬支撑坐感",
-                "去电视化 / 360° 自由组合模块"
-            ],
-            default=["电动零重力 / 智能功能沙发"]
-        )
-        custom_notes = st.text_input("补充备注 / 个性化叮嘱：", placeholder="例如：主卧想要头层牛皮床、床垫不要太厚等...")
+        with st.expander("💰 4. 预算与特殊需求", expanded=True):
+            total_budget = st.number_input("全屋采购总预算 (元)", min_value=5000, max_value=500000, value=35000, step=1000)
+            special_tags = st.multiselect(
+                "特殊功能需求：",
+                options=["电动零重力 / 智能功能沙发", "养宠家庭（防抓擦/防粘毛）", "有婴幼儿（防磕碰圆角）", "扫地机器人进出（离地>12cm）", "腰椎保护/偏硬支撑", "去电视化/自由组合模块"],
+                default=["电动零重力 / 智能功能沙发"]
+            )
+            custom_notes = st.text_input("补充备注：", placeholder="例如：主卧想要头层牛皮床、床垫不要太厚等...")
 
         st.markdown("---")
         submit_btn = st.button("🚀 一键生成全屋 AI 搭配与睡眠方案", type="primary", use_container_width=True)
 
-    # -------------------- 【右侧列】：AI 方案生成与图集预览区 --------------------
     with col_right:
-        st.subheader("📋 专属软装搭配与健康睡眠方案报告")
+        st.subheader("✨ AI 搭配报告与推荐展示")
 
         if submit_btn:
             if not api_key.startswith("sk-"):
-                st.error("❌ 请先在【左侧侧边栏】顶部输入有效的 DeepSeek API Key (以 sk- 开头)！")
+                st.error("❌ 请先配置 DeepSeek API Key（侧边栏或 secrets.toml）")
                 st.stop()
 
+            # ---- 预筛选：按品类+预算筛选候选产品 ----
+            sofa_budget = int(total_budget * 0.50)   # 沙发约占 50%
+            bed_budget = int(total_budget * 0.40)     # 床+床垫约占 40%
+            table_budget = int(total_budget * 0.15)   # 配套约占 15%
+
+            sofa_wall_cm = sofa_wall_len * 100
+            sofa_min = int(sofa_wall_cm * 0.7)
+            sofa_max = int(sofa_wall_cm * 0.85)
+
+            sofa_candidates, sofa_summary = filter_candidates(
+                product_index, category="沙发", max_price=sofa_budget, sofa_length=sofa_wall_cm
+            )
+            bed_candidates, bed_summary = filter_candidates(
+                product_index, category="床架", max_price=bed_budget
+            )
+            mattress_candidates, mattress_summary = filter_candidates(
+                product_index, category="床垫", max_price=bed_budget
+            )
+            table_candidates, table_summary = filter_candidates(
+                product_index, category="配套", max_price=table_budget
+            )
+
+            # 降级策略：某品类筛选无结果时放宽价格限制
+            if "无匹配产品" in sofa_summary:
+                sofa_candidates, sofa_summary = filter_candidates(
+                    product_index, category="沙发", sofa_length=sofa_wall_cm
+                )
+                sofa_summary += "\n（注：已放宽预算限制）"
+            if "无匹配产品" in bed_summary:
+                bed_candidates, bed_summary = filter_candidates(
+                    product_index, category="床架"
+                )
+                bed_summary += "\n（注：已放宽预算限制）"
+            if "无匹配产品" in mattress_summary:
+                mattress_candidates, mattress_summary = filter_candidates(
+                    product_index, category="床垫"
+                )
+                mattress_summary += "\n（注：已放宽预算限制）"
+            if "无匹配产品" in table_summary:
+                table_candidates, table_summary = filter_candidates(
+                    product_index, category="配套"
+                )
+                table_summary += "\n（注：已放宽预算限制）"
+
+            with st.expander("🔍 诊断：AI 收到的候选产品摘要", expanded=False):
+                st.caption("沙发候选:"); st.code(sofa_summary[:500])
+                st.caption("床架候选:"); st.code(bed_summary[:500])
+                st.caption("床垫候选:"); st.code(mattress_summary[:500])
+                st.caption("配套候选:"); st.code(table_summary[:500])
+
+            system_prompt = f"""你是一位顶级的家居软装与健康睡眠主理人。**严格仅从下方精选候选产品中**为客户搭配方案，不得推荐列表之外的产品（如无合适产品则如实说明）。
+
+【精选沙发候选】：
+{sofa_summary}
+
+【精选床架候选】：
+{bed_summary}
+
+【精选床垫候选】：
+{mattress_summary}
+
+【精选配套（茶几/电视柜/餐桌椅）候选】：
+{table_summary}
+
+【搭配规则】：
+        1. 💰 **严控预算**：推荐方案总价应控制在预算的 **95%~105%** 之间（即 ¥{int(total_budget*0.95):,}~¥{int(total_budget*1.05):,}），尽可能接近 ¥{total_budget:,}。
+        2. 🛏️ **必须为每个卧室配置床架+床垫**：客户选了卧室就必须推荐对应的床和床垫，不得遗漏。
+        3. 📐 **沙发长度严格匹配**：沙发总长度必须在 **{sofa_min}~{sofa_max}cm** 之间（背景墙 {sofa_wall_len} 米的 70%~85%），不得推荐此范围之外的规格。
+        4. ✅ **严格按采购清单推荐**：只推荐客户勾选的品类，未勾选的品类不要推荐。
+        5. 💤 **融入科学睡眠理念**。
+
+【输出结构】：
+一、空间尺寸与气场碰撞分析
+二、全屋推荐产品清单与报价明细（**每个产品必须注明具体规格/组合名称、总长度、实际成交价**，不得只写产品名和价格范围）
+三、价格汇总与预算控制说明
+四、科学睡眠理念与健康生活场景建议"""
+
+            # 构造采购清单
             items_list = []
-            if need_sofa: items_list.append("沙发 x 1套")
-            if need_chair: items_list.append("单人休闲椅 x 1张")
-            if need_table: items_list.append("茶几 x 1个")
-            if need_tv: items_list.append("电视柜 x 1个")
-            if need_dining: items_list.append("餐桌椅组合 x 1套")
+            if need_sofa: items_list.append("🛋️ 沙发")
+            if need_chair: items_list.append("🪑 单人休闲椅")
+            if need_table: items_list.append("☕ 茶几")
+            if need_tv: items_list.append("📺 电视柜")
+            if need_dining: items_list.append("🍽️ 餐桌椅组合")
 
-            bd_lines = []
-            for bd in bedroom_configs:
-                bd_lines.append(f"  - 【{bd['room_name']}】：床规格【{bd['bed_spec']}】，床头墙最大净宽限制【{bd['hb_limit']}】（选定床头宽度绝对不能超过此限制），床垫需求【{bd['mat_pref']}】")
-            bd_summary_str = "\n".join(bd_lines)
-
-            all_custom_reqs = special_tags.copy()
-            if custom_notes.strip():
-                all_custom_reqs.append(f"客户额外叮嘱：{custom_notes.strip()}")
-            custom_reqs_str = "；".join(all_custom_reqs) if all_custom_reqs else "无特殊自定义需求"
-
-            system_prompt = f"""
-            你是一位顶级的家居软装与健康睡眠主理人。请根据客户录入的尺寸、风格需求、睡眠偏好以及下方提供的封闭数据库，提炼生成一套专业、不超预算的全屋家具与健康睡眠搭配方案。
-
-            【封闭产品数据库（请严格在此范围内选择型号与报价，价格已换算为实际成交价）】：
-            {knowledge_base}
-            """
-
-            user_prompt = f"""
-            客户采购与空间需求资料：
-
-            【硬装与空间几何】：
-            - 装修风格偏好：【{style_pref}】（推荐的产品造型、面料材质和配色必须高度契合此风格）
-            - 客厅开间/视距：{room_width} 米
-            - 沙发背景墙长度：{sofa_wall_len} 米
-            - 色彩基调：墙面【{wall_color}】 + 地面【{floor_color}】
-
-            【勾选采购清单】：
-            - 客厅/餐厅需求：{'、'.join(items_list) if items_list else '无'}
-            - 卧室专项配置：
-            {bd_summary_str}
-
-            【自定义与特殊功能需求】：
-            {custom_reqs_str}
-
-            【全屋总预算】：
-            ¥{total_budget:,} 元人民币
-
-            【🚨 核心搭配算法与生成规则】：
-            1. 💰 **严禁超预算**：方案中所有选购产品的【实际成交价】相加总和，绝对不能超过总预算 ¥{total_budget:,} 元。
-            2. 🛏️ **床与床垫高度适配逻辑（防踩坑必查）**：
-               - 当同时推荐【床架】与【床垫】时，必须校验床垫厚度与床架的适配性。
-               - **睡眠高度黄金比例**：床板高度 + 床垫厚度（扣除齐边沉降深度）后的最终【睡眠总高度】建议保持在 **45cm ~ 55cm** 之间（人体工程学最佳起卧高度）。
-               - **床屏美观协调**：避免床垫太厚遮挡床屏艺术靠背，或床垫太薄导致床屏下沿悬空。
-            3. 💤 **深度融入科学睡眠理念**：
-               - 结合不同房间使用者（主卧夫妻/青少年/老人）的生理曲度特点，讲解选配床垫的人体工学支撑（如独立袋装弹簧的零干扰、七区分区释压、天然棕榈对青少年脊柱侧弯的预防、微环境透气呼吸等）。
-            4. 📐 **沙发尺寸与气场校验**：
-               - 在保证通行过道足够（>80cm）的前提下，**尽量选择偏大、偏宽、体量更强的大气规格（建议沙发长度控制在背景墙长度的 70%~80% 左右）**。
-            5. 👑 **主卧倾斜规则**：主卧配置权重提高，配置品质感好的软体床和高端护脊床垫；次卧/儿童房主打性价比与脊柱健康。
-
-            【📜 输出结构要求】：
-            一、 空间尺寸与气场碰撞分析（包含过道计算、背景墙比例及床与床垫高度适配校验）
-            二、 全屋推荐产品清单与报价明细（包含产品型号、规格尺寸/床垫厚度、实际成交价、推荐理由）
-            三、 价格汇总与预算控制说明
-            四、 科学睡眠理念与健康生活场景建议（重点阐述床垫人体工学、脊柱健康与深睡释压）
-            """
+            user_prompt = f"""客户需求：
+- 风格：{style_pref}
+- 客厅开间：{room_width}米，背景墙：{sofa_wall_len}米
+- 墙面：{wall_color}，地面：{floor_color}
+- **采购清单**：{'、'.join(items_list) if items_list else '无'}
+- 预算：¥{total_budget:,}（推荐总价务必控制在预算的 95%~105%）
+- 特殊需求：{'; '.join(special_tags)}
+- 备注：{custom_notes if custom_notes else '无'}
+- **卧室配置（必须为以下每个房间推荐床架+床垫）**：
+{chr(10).join(f'  · {bd["room_name"]}: {bd["bed_spec"]}, 床垫需求: {bd["mat_pref"]}' for bd in bedroom_configs) if bedroom_configs else '  无卧室配置'}
+"""
 
             try:
-                client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-
-                response_box = st.empty()
-                full_response = ""
-
-                stream = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.2, stream=True
-                )
-
-                for chunk in stream:
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        full_response += content
-                        response_box.markdown(full_response + "▌")
-
-                response_box.markdown(full_response)
-
-                # 图集展示
-                st.divider()
-                st.subheader("🖼️ 推荐产品视觉预览")
-                matched_models = set(re.findall(r'[A-Za-z0-9.]+', full_response))
-
-                display_count = 0
-                for folder_key, img_dict in images_db.items():
-                    if any(m.upper() in folder_key.upper() for m in matched_models if len(m) >= 4):
-                        display_count += 1
-                        with st.expander(f"📦 视觉预览：{folder_key}", expanded=True):
-                            tab_cat, tab_scene, tab_home = st.tabs(["📦 规格/浏览图", "🏡 展厅/场景效果图", "📸 客户入户实景图"])
-
-                            with tab_cat:
-                                catalog_imgs = img_dict.get("catalog_images", [])
-                                if catalog_imgs:
-                                    cols = st.columns(3)
-                                    for idx, img_p in enumerate(catalog_imgs[:3]):
-                                        with cols[idx % 3]: st.image(img_p, use_container_width=True)
-                                else: st.info("暂无规格/浏览图")
-
-                            with tab_scene:
-                                scene_imgs = img_dict.get("scene_images", [])
-                                if scene_imgs:
-                                    cols = st.columns(3)
-                                    for idx, img_p in enumerate(scene_imgs[:3]):
-                                        with cols[idx % 3]: st.image(img_p, use_container_width=True)
-                                else: st.info("暂无展厅/场景效果图")
-
-                            with tab_home:
-                                home_imgs = img_dict.get("home_images", []) or img_dict.get("real_images", [])
-                                if home_imgs:
-                                    cols = st.columns(3)
-                                    for idx, img_p in enumerate(home_imgs[:3]):
-                                        with cols[idx % 3]: st.image(img_p, use_container_width=True)
-                                else: st.info("📸 暂无客户入户实景图")
-
-                if display_count == 0:
-                    st.info("💡 提示：未能根据方案自动匹配到本地图片，请检查 `product_images.json` 里的型号对应路径。")
-
+                full_response = st.write_stream(stream_response(api_key, model_name, system_prompt, user_prompt))
             except Exception as e:
-                st.error(f"❌ DeepSeek API 调用失败: {e}")
+                st.error(f"❌ API 调用失败: {e}")
+                st.stop()
+
+            # 图集
+            st.divider()
+            st.subheader("🖼️ 推荐产品视觉预览")
+            matched_models = set()
+            for m in re.findall(r'[A-Za-z0-9.]+', full_response):
+                if len(m) >= 4:
+                    matched_models.add(m.upper())
+
+            display_count = 0
+            for folder_key, img_dict in images_db.items():
+                if any(m in folder_key.upper() for m in matched_models):
+                    display_count += 1
+                    with st.expander(f"📦 视觉预览：{folder_key}", expanded=True):
+                        tab_cat, tab_scene, tab_home = st.tabs(["📦 规格/浏览图", "🏡 展厅/场景效果图", "📸 客户入户实景图"])
+                        for tab_name, img_key in [("cat", "catalog_images"), ("scene", "scene_images"), ("home", "home_images")]:
+                            with [tab_cat, tab_scene, tab_home][["cat", "scene", "home"].index(tab_name)]:
+                                imgs = img_dict.get(img_key, []) or (img_dict.get("real_images", []) if img_key == "home_images" else [])
+                                if imgs:
+                                    for i in range(0, len(imgs), 3):
+                                        cols = st.columns(3)
+                                        for j, img_p in enumerate(imgs[i:i+3]):
+                                            with cols[j]:
+                                                st.image(img_p, use_container_width=True)
+                                else:
+                                    st.info({"cat": "暂无规格/浏览图", "scene": "暂无展厅/场景效果图", "home": "📸 暂无客户入户实景图"}[tab_name])
+
+            if display_count == 0:
+                st.info("💡 提示：未能根据方案自动匹配到本地图片。")
         else:
-            st.info("👈 请在左侧填写客户的需求和预算，点击【🚀 一键生成全屋 AI 搭配与睡眠方案】。")
+            st.info("👈 请在左侧填写客户的需求和预算。")
 
 
 # =========================================================================
-# 【Tab 2】：导购全品类速查助手（床/床垫/沙发/软装）
+# Tab 2：导购速查（同样使用预筛选）
 # =========================================================================
 with main_tab2:
     st.subheader("🔍 导购全品类速查助手（床 / 床垫 / 沙发）")
-    st.caption("⚡ 专门面向线下导购：随手输入要求，精准匹配床架、床垫厚度适配、沙发尺寸及睡眠健康偏好！")
+    st.caption("⚡ 专门面向线下导购：随手输入要求，精准匹配！")
 
     col_q1, col_q2 = st.columns([3, 1])
     with col_q1:
-        guide_query = st.text_input(
-            "请输入查询条件：",
-            placeholder="例如：1.8米皮床，推荐适配厚度22-25cm的独立弹簧护脊床垫，总预算7000内",
-            key="guide_query_input"
-        )
+        guide_query = st.text_input("请输入查询条件：", placeholder="例如：1.8米皮床，推荐适配厚度22-25cm的独立弹簧护脊床垫，总预算7000内", key="guide_query_input")
     with col_q2:
-        st.write(" ")
-        st.write(" ")
+        st.write(" "); st.write(" ")
         search_btn = st.button("🔎 立即检索库", type="primary", use_container_width=True)
 
-    st.caption("💡 导购高频快捷检索推荐：")
+    st.caption("💡 高频快捷检索：")
     col_e1, col_e2, col_e3, col_e4 = st.columns(4)
     if col_e1.button("📌 1.8米床 + 适配床垫组合"):
         guide_query = "1.8米主卧软体床，推荐匹配高度适中的护脊床垫，一套预算8000以内"
@@ -362,78 +548,67 @@ with main_tab2:
 
     if search_btn and guide_query:
         if not api_key.startswith("sk-"):
-            st.error("❌ 请先在【左侧侧边栏】顶部输入有效的 DeepSeek API Key (以 sk- 开头)！")
+            st.error("❌ 请先配置 DeepSeek API Key")
             st.stop()
 
-        guide_system_prompt = f"""
-        你是一位精准的家居与睡眠产品检索助手。请严格根据导购提出的要求（支持床架、床垫厚度适配、睡眠健康需求、沙发尺寸、价格与风格），从封闭数据库中检索并列出符合条件的最佳产品。
+        # 从查询中提取关键词和预算
+        budget_match = re.search(r'(\d{4,})\s*元|\d{4,}\s*以内|\d{4,}\s*内|预算(\d{4,})', guide_query)
+        max_price = int(budget_match.group(1) or budget_match.group(2) or 0) if budget_match else None
 
-        【封闭产品数据库】：
-        {knowledge_base}
+        kw = ""
+        if "床垫" in guide_query:
+            kw = "床垫"
+        elif "床" in guide_query or "软体床" in guide_query:
+            kw = "床架"
+        elif "沙发" in guide_query:
+            kw = "沙发"
 
-        【输出要求】：
-        1. 简洁清晰：直接列出符合条件的产品列表。
-        2. 若涉及【床+床垫搭配】：必须明确说明**床架沉降深度与床垫厚度的适配性**（确保睡眠总高度 45-55cm，且不遮挡床屏）。
-        3. 融入【健康睡眠卖点】：列出床垫或软体床在脊柱支撑、独立抗干扰、透气性等方面的睡眠理念。
-        4. 每项包含：【型号与名称】、【规格尺寸/厚度】、【实际成交价】、【睡眠与软装推荐理由】。
-        """
+        cat_map = {"床垫": "床垫", "床架": "床架", "沙发": "沙发"}
+        category = cat_map.get(kw)
+
+        candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=kw if category else None)
+
+        guide_prompt = f"""你是一位精准的家居与睡眠产品检索助手。**严格仅从下方候选产品中**检索，不得推荐列表之外的产品。如列表无合适产品则如实说明。
+
+【候选产品】：
+{summary}
+
+【导购要求】：{guide_query}
+
+【输出要求】：
+1. 列出符合条件的产品。
+2. 涉及床+床垫搭配时说明高度适配性（睡眠总高度 45-55cm）。
+3. 每项包含：型号、规格、成交价、推荐理由。"""
 
         try:
-            client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-
-            with st.spinner("🔍 正在从产品库中检索比对..."):
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": guide_system_prompt},
-                        {"role": "user", "content": f"导购检索要求：{guide_query}"}
-                    ],
-                    temperature=0.1
-                )
-                search_result = response.choices[0].message.content
-
-            st.markdown("### 📋 检索到匹配的产品及适配方案：")
-            st.markdown(search_result)
+            result_placeholder = st.empty()
+            full_result = ""
+            for chunk in stream_response(api_key, model_name, guide_prompt, f"导购检索：{guide_query}"):
+                full_result += chunk
+                result_placeholder.markdown(full_result + "▌")
+            result_placeholder.markdown(full_result)
 
             st.markdown("---")
-            st.markdown("### 🖼️ 匹配产品图片直达展示：")
-
-            matched_models = set(re.findall(r'[A-Za-z0-9.]+', search_result))
+            st.markdown("### 🖼️ 匹配产品图片")
+            matched_models = set(re.findall(r'[A-Za-z0-9.]+', full_result))
             display_count = 0
-
             for folder_key, img_dict in images_db.items():
                 if any(m.upper() in folder_key.upper() for m in matched_models if len(m) >= 4):
                     display_count += 1
                     st.markdown(f"#### 📦 {folder_key}")
-
                     tab_cat, tab_scene, tab_home = st.tabs(["📦 规格/浏览图", "🏡 展厅/场景效果图", "📸 客户入户实景图"])
-
-                    with tab_cat:
-                        catalog_imgs = img_dict.get("catalog_images", [])
-                        if catalog_imgs:
-                            cols = st.columns(3)
-                            for idx, img_p in enumerate(catalog_imgs[:3]):
-                                with cols[idx % 3]: st.image(img_p, use_container_width=True)
-                        else: st.info("暂无规格/浏览图")
-
-                    with tab_scene:
-                        scene_imgs = img_dict.get("scene_images", [])
-                        if scene_imgs:
-                            cols = st.columns(3)
-                            for idx, img_p in enumerate(scene_imgs[:3]):
-                                with cols[idx % 3]: st.image(img_p, use_container_width=True)
-                        else: st.info("暂无展厅/场景效果图")
-
-                    with tab_home:
-                        home_imgs = img_dict.get("home_images", []) or img_dict.get("real_images", [])
-                        if home_imgs:
-                            cols = st.columns(3)
-                            for idx, img_p in enumerate(home_imgs[:3]):
-                                with cols[idx % 3]: st.image(img_p, use_container_width=True)
-                        else: st.info("📸 暂无客户入户实景图")
-
+                    for tab_name, img_key in [("cat", "catalog_images"), ("scene", "scene_images"), ("home", "home_images")]:
+                        with [tab_cat, tab_scene, tab_home][["cat", "scene", "home"].index(tab_name)]:
+                            imgs = img_dict.get(img_key, []) or (img_dict.get("real_images", []) if img_key == "home_images" else [])
+                            if imgs:
+                                for i in range(0, len(imgs), 3):
+                                    cols = st.columns(3)
+                                    for j, img_p in enumerate(imgs[i:i+3]):
+                                        with cols[j]:
+                                            st.image(img_p, use_container_width=True)
+                            else:
+                                st.info({"cat": "暂无规格/浏览图", "scene": "暂无展厅/场景效果图", "home": "📸 暂无客户入户实景图"}[tab_name])
             if display_count == 0:
-                st.info("💡 提示：未能根据检索文本找到匹配的图片，请检查 `product_images.json` 映射。")
-
+                st.info("💡 提示：未能匹配到图片。")
         except Exception as e:
             st.error(f"❌ 检索失败: {e}")
