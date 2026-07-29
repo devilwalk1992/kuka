@@ -30,9 +30,11 @@ CATEGORY_MAP = {"沙发": "沙发", "床": "床架", "床垫": "床垫", "配套
 
 # ==================== 3. 产品索引构建（解析 MD → 结构化数据）====================
 def _extract_price_rows(text, category, max_rows=8):
-    """提取MD文件中规格-价格行，返回格式化的列表
-    沙发只保留组合规格（含 + 号），床/床垫/配套保留所有规格"""
-    rows = []
+    """提取MD文件中规格-价格行，返回 (display_rows, all_prices)
+    display_rows: 格式化的显示行（沙发只保留组合规格）
+    all_prices: 所有规格的真实价格列表（用于价格区间计算）"""
+    display_rows = []
+    all_prices = []
     for line in text.split('\n'):
         stripped = line.strip()
         if not stripped.startswith('|') or '---' in stripped or '|--' in stripped:
@@ -72,13 +74,15 @@ def _extract_price_rows(text, category, max_rows=8):
         raw_price = parts[price_col]
         price_clean = raw_price.replace('¥', '').replace('￥', '').replace('元', '').replace(',', '').strip()
         if re.match(r'^\d{3,}$', price_clean):
-            formatted = f"{spec_name} → {size_col}, ¥{int(price_clean):,}"
+            price_val = int(price_clean)
+            all_prices.append(price_val)
+            formatted = f"{spec_name} → {size_col}, ¥{price_val:,}"
             # 沙发只保留组合规格（含 + 号），床/床垫/配套保留所有规格
             if category != "沙发" or '+' in spec_name:
-                rows.append(formatted)
-        if len(rows) >= max_rows:
-            break
-    return rows
+                display_rows.append(formatted)
+                if len(display_rows) >= max_rows:
+                    break
+    return display_rows, all_prices
 
 
 def _parse_md_product(filepath, rel_path):
@@ -131,26 +135,10 @@ def _parse_md_product(filepath, rel_path):
             if len(parts) >= 2:
                 colors.append(parts[1])
 
-    # 价格范围（过滤掉型号名中的数字和 UUID/路径中的数字）
-    prices = []
-    model_nums = set(re.findall(r'\d+', model))
-    for m in re.finditer(r'[¥￥]?([\d,]+)\s*(?:元|）)?', text):
-        try:
-            p = int(m.group(1).replace(",", ""))
-            if not (500 <= p <= 200000):
-                continue
-            if any(str(p) == n for n in model_nums):
-                continue
-            # 排除 UUID/文件名中的数字（数字前后紧挨着字母或"-"则不是价格）
-            ctx_before = text[max(0, m.start()-1):m.start()]
-            ctx_after = text[m.end():min(len(text), m.end()+1)]
-            if re.search(r'[a-zA-Z-]', ctx_before + ctx_after):
-                continue
-            prices.append(p)
-        except ValueError:
-            pass
-    min_price = min(prices) if prices else 0
-    max_price = max(prices) if prices else 0
+    # 价格：从规格价格表提取（精确可靠，替换旧的全文档正则）
+    price_rows, table_prices = _extract_price_rows(text, category, max_rows=8)
+    min_price = min(table_prices) if table_prices else 0
+    max_price = max(table_prices) if table_prices else 0
 
     # 沙发：提取所有长度（从规格尺寸表）
     lengths = []
@@ -258,7 +246,7 @@ def _parse_md_product(filepath, rel_path):
         "specs": specs[:3],
         "bed_frame_height": bed_frame_height,
         "mattress_thickness": mattress_thickness,
-        "price_rows": _extract_price_rows(text, category, max_rows=8),
+        "price_rows": price_rows,
         "design_style": design_style,
         "sofa_dimensions": sofa_dimensions,
         "bed_head_height": bed_head_height,
@@ -266,8 +254,8 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3():
-    """扫描所有 md 文件，构建可搜索的产品索引"""
+def build_product_index_v3(_version="v4_price_fix"):
+    """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
         return index, ""
@@ -471,7 +459,8 @@ def stream_response(api_key, model, system_prompt, user_prompt):
     )
     for chunk in stream:
         if chunk.choices[0].delta.content:
-            yield chunk.choices[0].delta.content
+            # 实时过滤 LLM 输出的 Markdown 删除线标记
+            yield chunk.choices[0].delta.content.replace("~~", "")
 
 
 # ==================== 6. CSS ====================
@@ -709,8 +698,6 @@ with main_tab1:
 
             try:
                 full_response = st.write_stream(stream_response(api_key, model_name, system_prompt, user_prompt))
-                # 清理 LLM 输出中的 Markdown 删除线标记（~~），避免被渲染为删除线
-                full_response = re.sub(r'~~', '', full_response)
             except Exception as e:
                 st.error(f"❌ API 调用失败: {e}")
                 st.stop()
