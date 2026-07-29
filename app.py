@@ -192,6 +192,23 @@ images_db = load_images_v2()
 
 
 # ==================== 4. 预筛选函数（纯 Python，微秒级）====================
+def _digit_fuzzy_match(terms, model):
+    """数字模糊匹配：提取查询中的数字，与产品型号中的数字进行子串匹配
+    例如 查询"815" → 型号"HS.B815PQ1"中的"B815" → 包含"815" 匹配成功
+        查询"1018" → 型号"JD.M1018.H25"中的"1018" 匹配成功"""
+    query_digits = set()
+    for t in terms:
+        query_digits.update(re.findall(r'\d+', t))
+    model_digits = set(re.findall(r'\d+', model))
+    for qd in query_digits:
+        if len(qd) >= 2:  # 至少2位数字才有意义
+            for md in model_digits:
+                # 双向子串匹配："815" in "B815" 或 "B815" in "815"（后者处理极端情况）
+                if qd in md or md in qd:
+                    return True
+    return False
+
+
 def filter_candidates(index, category=None, max_price=None, sofa_length=None, keywords=None):
     """从产品索引中快速筛选候选产品
     返回：候选产品列表 + 精简摘要文本（供 LLM 使用）"""
@@ -208,13 +225,19 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, ke
             ok = any(sofa_length * 0.7 <= l <= sofa_length * 0.85 for l in p["lengths"])
             if not ok:
                 continue
-        # 关键词拦截（支持模糊匹配：任意关键词匹配即通过）
+        # 关键词拦截（增强模糊匹配）
         if keywords:
             terms = [t.strip().lower() for t in keywords.replace(",", " ").split() if len(t.strip()) >= 2]
             if terms:
                 haystack = f"{p['category']} {model} {p['name']} {p['series']} {' '.join(p['features'])}".lower()
-                if not any(t in haystack for t in terms):
-                    continue
+                # 1) 先尝试直接子串匹配
+                if any(t in haystack for t in terms):
+                    pass  # 匹配通过
+                else:
+                    # 2) 子串匹配失败时，尝试数字模糊匹配
+                    # 例如：输入"815" → 型号"HS.B815PQ1"中的"B815"包含"815"
+                    if not _digit_fuzzy_match(terms, model):
+                        continue
 
         candidates.append(p)
         if len(candidates) >= 10:
@@ -585,12 +608,12 @@ with main_tab2:
         cat_map = {"床垫": "床垫", "床架": "床架", "沙发": "沙发"}
         category = cat_map.get(kw)
 
-        # 从用户查询中提取型号关键词，支持模糊匹配（如"813"、"B813"、"乐章"、"ZX.0057"）
+        # 增强关键词提取：同时保留原始查询 + 提取的型号关键词
+        # 例如 "815的床" → 同时用 "815的床 815" 搜索 → 数字模糊匹配 + 品类名匹配双保险
         search_kw = guide_query
         model_patterns = re.findall(r'[A-Za-z]{1,4}\.?\d{2,4}[A-Za-z0-9]*|\b\d{3,4}\b', guide_query)
         if model_patterns:
-            # 有型号关键词则用型号匹配，更精确
-            search_kw = " ".join(model_patterns)
+            search_kw = guide_query + " " + " ".join(model_patterns)
         candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw)
 
         guide_prompt = f"""你是一位精准的家居与睡眠产品检索助手。**严格仅从下方候选产品中**检索，不得推荐列表之外的产品。如列表无合适产品则如实说明。
