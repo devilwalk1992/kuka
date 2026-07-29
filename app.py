@@ -196,6 +196,24 @@ def _parse_md_product(filepath, rel_path):
         # 清理尾部多余的描述文字（如末尾带句号的风格描述）
         design_style = re.sub(r'[。，].*$', '', design_style).strip()
 
+    # 整体尺寸解析（沙发专用）：从 ### 尺寸详解 → **整体尺寸：** 表中提取
+    # 如靠背高度、坐深、坐垫高度、扶手高度、沙发深度等
+    sofa_dimensions = {}
+    if category == "沙发":
+        overall_table = re.search(r'\*\*整体尺寸：\*\*\s*\n\|.+\n(\|.+\n?)+', text)
+        if not overall_table:
+            overall_table = re.search(r'### 尺寸详解\s*\n\|.+\n\|.+\n(\|.+\n?)+', text)
+        if overall_table:
+            for line in overall_table.group(0).split('\n'):
+                if not line.strip().startswith('|'):
+                    continue
+                parts = [p.strip() for p in line.split('|') if p.strip()]
+                if len(parts) >= 2 and not re.search(r'项目|尺寸|组件|宽度|扶手高度', ''.join(parts[:2])):
+                    dim_name = parts[0]
+                    dim_val = re.search(r'(\d+)', parts[1])
+                    if dim_val:
+                        sofa_dimensions[dim_name] = int(dim_val.group(1))
+
     return {
         "model": model,
         "name": name,
@@ -212,6 +230,7 @@ def _parse_md_product(filepath, rel_path):
         "mattress_thickness": mattress_thickness,
         "price_rows": _extract_price_rows(text, category, max_rows=8),
         "design_style": design_style,
+        "sofa_dimensions": sofa_dimensions,
     }
 
 
@@ -300,10 +319,15 @@ def _match_style(user_style, product_style):
     return False
 
 
-def filter_candidates(index, category=None, max_price=None, sofa_length=None, style=None, keywords=None):
+def filter_candidates(index, category=None, max_price=None, sofa_length=None, style=None, keywords=None, min_candidates=8):
     """从产品索引中快速筛选候选产品
+    关键词匹配策略（三级降级）：
+    1. 先用关键词精确匹配，找到匹配的产品
+    2. 如果不够 min_candidates 个，再宽松补齐（同一品类下无需关键词的候选）
+    3. 如果还不够，去掉预算限制补齐
     返回：候选产品列表 + 精简摘要文本（供 LLM 使用）"""
     candidates = []
+    fallback_pool = []
     for model, p in index.items():
         # 品类拦截
         if category and p["category"] != category:
@@ -320,23 +344,42 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
         if style and category == "沙发" and p.get("design_style"):
             if not _match_style(style, p["design_style"]):
                 continue
-        # 关键词拦截（增强模糊匹配）
+        # 关键词匹配（含尺寸规格文本，用于更好搜索）
+        match_keyword = True
         if keywords:
             terms = [t.strip().lower() for t in keywords.replace(",", " ").split() if len(t.strip()) >= 2]
             if terms:
-                haystack = f"{p['category']} {model} {p['name']} {p['series']} {' '.join(p['features'])}".lower()
-                # 1) 先尝试直接子串匹配
+                # 扩充 haystack：整合所有已提取字段，无需手动添加关键词
+                price_text = " ".join(p.get("price_rows", []))
+                colors_text = " ".join(p.get("colors", []))
+                haystack = (
+                    f"{p['category']} {model} {p['name']} {p['series']} "
+                    f"{p.get('design_style','')} {p.get('tagline','')} "
+                    f"{colors_text} {price_text} "
+                    f"{' '.join(p.get('features',[]))} "
+                    f"{p.get('mattress_thickness','')} "
+                ).lower()
+                # 1) 直接子串匹配
                 if any(t in haystack for t in terms):
-                    pass  # 匹配通过
+                    pass
                 else:
-                    # 2) 子串匹配失败时，尝试数字模糊匹配
-                    # 例如：输入"815" → 型号"HS.B815PQ1"中的"B815"包含"815"
-                    if not _digit_fuzzy_match(terms, model):
-                        continue
-
-        candidates.append(p)
-        if len(candidates) >= 10:
+                    # 2) 数字模糊匹配
+                    match_keyword = _digit_fuzzy_match(terms, model)
+            else:
+                match_keyword = True
+        
+        if match_keyword:
+            candidates.append(p)
+        else:
+            fallback_pool.append(p)
+        
+        if len(candidates) >= min_candidates:
             break
+
+    # 降级策略：关键词匹配不够时，用品类/预算内产品补齐
+    if len(candidates) < min_candidates and fallback_pool:
+        need = min(min_candidates - len(candidates), len(fallback_pool))
+        candidates.extend(fallback_pool[:need])
 
     # 生成精简摘要文本（用 .get() 安全读取，兼容旧缓存）
     lines = []
@@ -360,6 +403,14 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
             line += f" | 特点: {'; '.join(p['features'][:2])}"
         if p.get("price_rows"):
             line += "\n    " + "\n    ".join(p["price_rows"][:6])
+        if p.get("sofa_dimensions"):
+            dims = p["sofa_dimensions"]
+            parts = []
+            for key in ["靠背高度", "坐深", "坐垫高度", "扶手高度", "沙发深度"]:
+                if key in dims:
+                    parts.append(f"{key}: {dims[key]}cm")
+            if parts:
+                line += f" | {' '.join(parts)}"
         lines.append(line)
 
     summary = "\n".join(lines) if lines else "（无匹配产品）"
@@ -622,6 +673,8 @@ with main_tab1:
 
             try:
                 full_response = st.write_stream(stream_response(api_key, model_name, system_prompt, user_prompt))
+                # 清理 LLM 输出中的 Markdown 删除线标记（~~），避免被渲染为删除线
+                full_response = re.sub(r'~~', '', full_response)
             except Exception as e:
                 st.error(f"❌ API 调用失败: {e}")
                 st.stop()
@@ -716,28 +769,28 @@ with main_tab2:
         extra_kw = " ".join(model_patterns)
         if extra_kw.strip():
             search_kw = guide_query + " " + extra_kw
-        candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw)
+        candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw, min_candidates=999)
 
-        guide_prompt = f"""你是一位精准的家居与睡眠产品检索助手。**严格仅从下方候选产品中**检索，不得推荐列表之外的产品。如列表无合适产品则如实说明。
+        guide_prompt = f"""你是一位精准的家居与睡眠产品检索助手。**以下列出了所有符合条件的候选产品**，请逐一列出并说明。如无合适产品则如实说明。
 
-【候选产品】：
+【所有候选产品】：
 {summary}
 
 【导购要求】：{guide_query}
 
 【输出要求】：
-1. 列出符合条件的产品，**必须使用候选产品中标注的真实价格**（下方每个产品都有具体的规格价格表），不得自行编造价格。
-2. 涉及床+床垫搭配时说明高度适配性：使用床架标注的**床身高度**（平台离地高）搭配床垫，总睡眠高度建议 45~55cm，**非**床头靠背高度。
-3. 涉及餐桌时，必须搭配 4 把同系列餐椅计算总价。
-4. 每项包含：型号、规格、成交价、推荐理由。"""
+1. **列出所有候选产品**，逐一说明每个产品的型号、规格、成交价和推荐理由。
+2. **必须使用候选产品中标注的真实价格**（每个产品下方都有具体的规格价格表），不得自行编造。
+3. 涉及床+床垫搭配时说明高度适配性：使用床架标注的**床身高度**（平台离地高）搭配床垫，总睡眠高度建议 45~55cm，**非**床头靠背高度。
+4. 涉及餐桌时，必须搭配 4 把同系列餐椅计算总价。"""
 
         try:
             result_placeholder = st.empty()
             full_result = ""
             for chunk in stream_response(api_key, model_name, guide_prompt, f"导购检索：{guide_query}"):
                 full_result += chunk
-                result_placeholder.markdown(full_result + "▌")
-            result_placeholder.markdown(full_result)
+                result_placeholder.markdown(re.sub(r'~~', '', full_result) + "▌")
+            result_placeholder.markdown(re.sub(r'~~', '', full_result))
 
             st.markdown("---")
             st.markdown("### 🖼️ 匹配产品图片")
