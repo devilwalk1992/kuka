@@ -214,6 +214,36 @@ def _parse_md_product(filepath, rel_path):
                     if dim_val:
                         sofa_dimensions[dim_name] = int(dim_val.group(1))
 
+    # 床头高度（床架专用）：从床架外尺寸(总长×总宽×头高)中提取
+    # 如 "228×166×115" → 头高 115cm
+    bed_head_height = 0
+    if category == "床架":
+        head_heights = []
+        for line in text.split('\n'):
+            if '×' not in line and 'x' not in line.lower():
+                continue
+            stripped = line.strip()
+            if not stripped.startswith('|'):
+                # 非表格行只匹配包含"床架外尺寸"或"外尺寸"关键词的行
+                if '床架外尺寸' not in stripped and '外尺寸' not in stripped and '头高' not in stripped:
+                    continue
+                nums = re.findall(r'(\d+)\s*[×x]\s*(\d+)\s*[×x]\s*(\d+)', line.lower())
+                for n in nums:
+                    head_heights.append(int(n[2]))
+                continue
+            parts = [p.strip() for p in stripped.split('|') if p.strip()]
+            if len(parts) < 2:
+                continue
+            # 匹配尺寸列（第二列）中的 "数字×数字×数字" 格式
+            size_col = parts[1]
+            nums = re.findall(r'(\d+)\s*[×x]\s*(\d+)\s*[×x]\s*(\d+)', size_col.lower())
+            for n in nums:
+                v = int(n[2])
+                if 50 <= v <= 200:  # 头高合理范围
+                    head_heights.append(v)
+        if head_heights:
+            bed_head_height = head_heights[0]
+
     return {
         "model": model,
         "name": name,
@@ -231,6 +261,7 @@ def _parse_md_product(filepath, rel_path):
         "price_rows": _extract_price_rows(text, category, max_rows=8),
         "design_style": design_style,
         "sofa_dimensions": sofa_dimensions,
+        "bed_head_height": bed_head_height,
     }
 
 
@@ -302,12 +333,15 @@ def _match_style(user_style, product_style):
     
     # 定义用户风格 → 搜索关键词映射
     style_kw_map = {
-        "意式极简": ["意式极简", "意式", "极简"],
-        "法式奶油风": ["奶油"],
-        "现代轻奢": ["轻奢"],
-        "极简风": ["极简"],
+        "现代简约": ["现代简约"],
+        "温馨奶油": ["奶油"],
+        "意式轻奢": ["意式", "轻奢"],
+        "极简": ["极简"],
+        "法式复古": ["法式", "复古", "中古"],
         "原木风": ["原木"],
+        "中古风": ["中古"],
         "新中式": ["新中式", "中古"],
+        "美式": ["美式"],
     }
     keywords = style_kw_map.get(user_style, [user_style.lower()])
     
@@ -395,6 +429,8 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
             line += f" | 床身高度: {p['bed_frame_height']}cm"
         if p.get("mattress_thickness"):
             line += f" | 适配床垫厚度: {p['mattress_thickness']}"
+        if p.get("bed_head_height") and p["bed_head_height"] > 0:
+            line += f" | 床头高度: {p['bed_head_height']}cm"
         if p.get("tagline"):
             line += f" | 卖点: {p['tagline']}"
         if p.get("design_style"):
@@ -503,7 +539,7 @@ with main_tab1:
         st.subheader("📋 空间需求与预算录入")
 
         with st.expander("🏠 1. 客厅环境与风格", expanded=True):
-            style_pref = st.selectbox("装修风格偏好", ["意式极简", "法式奶油风", "现代轻奢", "极简风", "原木风", "新中式"])
+            style_pref = st.selectbox("装修风格偏好", ["现代简约", "温馨奶油", "意式轻奢", "极简", "法式复古", "原木风", "中古风", "新中式", "美式"])
             col_dim1, col_dim2 = st.columns(2)
             with col_dim1:
                 room_width = st.number_input("客厅开间/视距 (米)", min_value=2.0, max_value=8.0, value=3.6, step=0.1)
@@ -511,9 +547,9 @@ with main_tab1:
                 sofa_wall_len = st.number_input("沙发背景墙长度 (米)", min_value=2.0, max_value=8.0, value=4.2, step=0.1)
             col_c1, col_c2 = st.columns(2)
             with col_c1:
-                wall_color = st.selectbox("墙面颜色", ["奶咖色/大白墙", "浅灰色", "原木色系", "暗色极简"])
+                wall_color = st.selectbox("墙面颜色", ["奶咖色", "奶油白", "米杏色", "太空灰", "纯白", "咖色护墙板"])
             with col_c2:
-                floor_color = st.selectbox("地面材质", ["浅色亮光地砖", "柔光大理石砖", "原木地板", "灰调地砖"])
+                floor_color = st.selectbox("地面材质", ["亮光灰色", "亮光白色", "哑光灰色", "哑光奶咖", "柔光奶咖", "暗色岩板", "胡桃色木纹砖"])
 
         with st.expander("🛒 2. 客厅与餐厨采购清单", expanded=False):
             col_c1, col_c2 = st.columns(2)
