@@ -125,6 +125,17 @@ def _parse_md_product(filepath, rel_path):
                     if len(parts) >= 3 and re.search(r'\d{3,}', parts[1]):
                         specs.append(parts[1])
 
+    # 床身高度 & 适配床垫厚度（床架专用）
+    bed_frame_height = 0
+    bed_height_match = re.search(r'\*\*床身高度\*\*\s*:\s*(\d+)', text)
+    if bed_height_match:
+        bed_frame_height = int(bed_height_match.group(1))
+
+    mattress_thickness = ""
+    mt_match = re.search(r'\*\*适配床垫厚度\*\*\s*:\s*(.+)', text)
+    if mt_match:
+        mattress_thickness = mt_match.group(1).strip()
+
     return {
         "model": model,
         "name": name,
@@ -137,6 +148,8 @@ def _parse_md_product(filepath, rel_path):
         "max_price": max_price,
         "lengths": sorted(set(lengths)),
         "specs": specs[:3],
+        "bed_frame_height": bed_frame_height,
+        "mattress_thickness": mattress_thickness,
     }
 
 
@@ -195,12 +208,13 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, ke
             ok = any(sofa_length * 0.7 <= l <= sofa_length * 0.85 for l in p["lengths"])
             if not ok:
                 continue
-        # 关键词拦截
+        # 关键词拦截（支持模糊匹配：任意关键词匹配即通过）
         if keywords:
-            kw_lower = keywords.lower()
-            haystack = f"{p['category']} {model} {p['name']} {p['series']} {' '.join(p['features'])}".lower()
-            if kw_lower not in haystack:
-                continue
+            terms = [t.strip().lower() for t in keywords.replace(",", " ").split() if len(t.strip()) >= 2]
+            if terms:
+                haystack = f"{p['category']} {model} {p['name']} {p['series']} {' '.join(p['features'])}".lower()
+                if not any(t in haystack for t in terms):
+                    continue
 
         candidates.append(p)
         if len(candidates) >= 10:
@@ -216,6 +230,10 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, ke
             line += f" | 规格: {', '.join(p['specs'][:3])}"
         if p["colors"]:
             line += f" | 配色: {'/'.join(p['colors'][:2])}"
+        if p["bed_frame_height"]:
+            line += f" | 床身高度: {p['bed_frame_height']}cm"
+        if p["mattress_thickness"]:
+            line += f" | 适配床垫厚度: {p['mattress_thickness']}"
         if p["tagline"]:
             line += f" | 卖点: {p['tagline']}"
         if p["features"]:
@@ -450,6 +468,7 @@ with main_tab1:
         3. 📐 **沙发长度严格匹配**：沙发总长度必须在 **{sofa_min}~{sofa_max}cm** 之间（背景墙 {sofa_wall_len} 米的 70%~85%），不得推荐此范围之外的规格。
         4. ✅ **严格按采购清单推荐**：只推荐客户勾选的品类，未勾选的品类不要推荐。
         5. 💤 **融入科学睡眠理念**。
+        6. 🛌 **床垫厚度匹配**：计算睡眠总高度时使用床架标注的**床身高度**（即床架平台离地高度），搭配床垫后总高度建议 45~55cm，**非**床头靠背高度。
 
 【输出结构】：
 一、空间尺寸与气场碰撞分析
@@ -566,7 +585,13 @@ with main_tab2:
         cat_map = {"床垫": "床垫", "床架": "床架", "沙发": "沙发"}
         category = cat_map.get(kw)
 
-        candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=kw if category else None)
+        # 从用户查询中提取型号关键词，支持模糊匹配（如"813"、"B813"、"乐章"、"ZX.0057"）
+        search_kw = guide_query
+        model_patterns = re.findall(r'[A-Za-z]{1,4}\.?\d{2,4}[A-Za-z0-9]*|\b\d{3,4}\b', guide_query)
+        if model_patterns:
+            # 有型号关键词则用型号匹配，更精确
+            search_kw = " ".join(model_patterns)
+        candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw)
 
         guide_prompt = f"""你是一位精准的家居与睡眠产品检索助手。**严格仅从下方候选产品中**检索，不得推荐列表之外的产品。如列表无合适产品则如实说明。
 
@@ -577,7 +602,7 @@ with main_tab2:
 
 【输出要求】：
 1. 列出符合条件的产品。
-2. 涉及床+床垫搭配时说明高度适配性（睡眠总高度 45-55cm）。
+2. 涉及床+床垫搭配时说明高度适配性：使用床架标注的**床身高度**（平台离地高）搭配床垫，总睡眠高度建议 45~55cm，**非**床头靠背高度。
 3. 每项包含：型号、规格、成交价、推荐理由。"""
 
         try:
