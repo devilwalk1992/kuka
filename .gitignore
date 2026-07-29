@@ -36,14 +36,12 @@ _temp*
 *.ps1
 
 # 输出文件
-*.txt
 output_*.txt
 jd*.txt
+ppt_analysis*.txt
 
-# Streamlit 应用
-app.py
-requirements.txt
-.streamlit/
+# Streamlit 应用 - 排除包含敏感信息的配置
+.streamlit/secrets.toml
 
 # 旧版应用目录
 kuka-ai-app/

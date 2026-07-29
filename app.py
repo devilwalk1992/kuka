@@ -32,11 +32,13 @@ def load_database():
     """读取 Markdown 数据库与 JSON 图文索引"""
     knowledge_base = ""
     if os.path.exists(MD_DB_DIR):
-        for file in os.listdir(MD_DB_DIR):
-            if file.endswith(".md"):
-                file_path = os.path.join(MD_DB_DIR, file)
-                with open(file_path, "r", encoding="utf-8") as f:
-                    knowledge_base += f"\n\n--- 档案文件: {file} ---\n" + f.read()
+        for root, dirs, files in os.walk(MD_DB_DIR):
+            for file in files:
+                if file.endswith(".md"):
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, MD_DB_DIR)
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        knowledge_base += f"\n\n--- 档案文件: {rel_path} ---\n" + f.read()
 
     images_db = {}
     if os.path.exists(JSON_INDEX_PATH):
