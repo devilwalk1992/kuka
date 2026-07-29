@@ -188,6 +188,14 @@ def _parse_md_product(filepath, rel_path):
     if mt_match:
         mattress_thickness = mt_match.group(1).strip()
 
+    # 设计风格（沙发专用）
+    design_style = ""
+    ds_match = re.search(r'### 设计风格\s*\n+\s*(.+?)(?:\n|$)', text)
+    if ds_match:
+        design_style = ds_match.group(1).strip()
+        # 清理尾部多余的描述文字（如末尾带句号的风格描述）
+        design_style = re.sub(r'[。，].*$', '', design_style).strip()
+
     return {
         "model": model,
         "name": name,
@@ -203,6 +211,7 @@ def _parse_md_product(filepath, rel_path):
         "bed_frame_height": bed_frame_height,
         "mattress_thickness": mattress_thickness,
         "price_rows": _extract_price_rows(text, category, max_rows=8),
+        "design_style": design_style,
     }
 
 
@@ -262,7 +271,36 @@ def _digit_fuzzy_match(terms, model):
     return False
 
 
-def filter_candidates(index, category=None, max_price=None, sofa_length=None, keywords=None):
+def _match_style(user_style, product_style):
+    """检查用户选择的风格是否匹配产品的设计风格
+    例如：用户选"法式奶油风" → 产品标注"现代简约 / 原木 / 奶油风" → 匹配成功
+         用户选"意式极简" → 产品标注"现代意式极简" → 匹配成功"""
+    if not user_style or not product_style:
+        return True
+    # 将产品风格按 / 、 分隔为多个标签
+    prod_tags = re.split(r'[/、,，]', product_style.lower())
+    prod_tags = [t.strip() for t in prod_tags if t.strip()]
+    
+    # 定义用户风格 → 搜索关键词映射
+    style_kw_map = {
+        "意式极简": ["意式极简", "意式", "极简"],
+        "法式奶油风": ["奶油"],
+        "现代轻奢": ["轻奢"],
+        "极简风": ["极简"],
+        "原木风": ["原木"],
+        "新中式": ["新中式", "中古"],
+    }
+    keywords = style_kw_map.get(user_style, [user_style.lower()])
+    
+    # 检查是否有任一关键词匹配任一产品标签
+    for kw in keywords:
+        for tag in prod_tags:
+            if kw in tag:
+                return True
+    return False
+
+
+def filter_candidates(index, category=None, max_price=None, sofa_length=None, style=None, keywords=None):
     """从产品索引中快速筛选候选产品
     返回：候选产品列表 + 精简摘要文本（供 LLM 使用）"""
     candidates = []
@@ -277,6 +315,10 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, ke
         if sofa_length and p["lengths"]:
             ok = any(sofa_length * 0.7 <= l <= sofa_length * 0.85 for l in p["lengths"])
             if not ok:
+                continue
+        # 风格拦截（沙发专用）
+        if style and category == "沙发" and p.get("design_style"):
+            if not _match_style(style, p["design_style"]):
                 continue
         # 关键词拦截（增强模糊匹配）
         if keywords:
@@ -312,6 +354,8 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, ke
             line += f" | 适配床垫厚度: {p['mattress_thickness']}"
         if p.get("tagline"):
             line += f" | 卖点: {p['tagline']}"
+        if p.get("design_style"):
+            line += f" | 风格: {p['design_style']}"
         if p.get("features"):
             line += f" | 特点: {'; '.join(p['features'][:2])}"
         if p.get("price_rows"):
@@ -486,7 +530,7 @@ with main_tab1:
             sofa_max = int(sofa_wall_cm * 0.85)
 
             sofa_candidates, sofa_summary = filter_candidates(
-                product_index, category="沙发", max_price=sofa_budget, sofa_length=sofa_wall_cm
+                product_index, category="沙发", max_price=sofa_budget, sofa_length=sofa_wall_cm, style=style_pref
             )
             bed_candidates, bed_summary = filter_candidates(
                 product_index, category="床架", max_price=bed_budget
@@ -501,7 +545,7 @@ with main_tab1:
             # 降级策略：某品类筛选无结果时放宽价格限制
             if "无匹配产品" in sofa_summary:
                 sofa_candidates, sofa_summary = filter_candidates(
-                    product_index, category="沙发", sofa_length=sofa_wall_cm
+                    product_index, category="沙发", sofa_length=sofa_wall_cm, style=style_pref
                 )
                 sofa_summary += "\n（注：已放宽预算限制）"
             if "无匹配产品" in bed_summary:
