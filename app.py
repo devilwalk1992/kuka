@@ -29,6 +29,56 @@ CATEGORY_MAP = {"沙发": "沙发", "床": "床架", "床垫": "床垫", "配套
 
 
 # ==================== 3. 产品索引构建（解析 MD → 结构化数据）====================
+def _extract_price_rows(text, max_rows=8):
+    """提取MD文件中规格-价格行，返回格式化的列表
+    例如：['1.5右 → 126cm, ¥5,099', '1.5左 → 126cm, ¥5,099']"""
+    rows = []
+    for line in text.split('\n'):
+        stripped = line.strip()
+        if not stripped.startswith('|') or '---' in stripped or '|--' in stripped:
+            continue
+        parts = [p.strip() for p in stripped.split('|') if p.strip()]
+        if len(parts) < 3:
+            continue
+        # 跳过表头行
+        header_chars = ''.join(parts)
+        if re.search(r'规格|尺寸|型号|成交价|色号|组件|项目', header_chars[:15]):
+            continue
+        # 从右往左找价格列：优先找含 ¥/￥/元 的列
+        price_col = None
+        for i in range(len(parts) - 1, -1, -1):
+            cell = parts[i]
+            if re.search(r'[¥￥]', cell) or re.search(r'元', cell):
+                if re.search(r'\d{3,}', cell):
+                    price_col = i
+                    break
+        if price_col is None:
+            # 无符号标记时，从右往左找纯数字列（不含字母/×/x/cm等）
+            for i in range(len(parts) - 1, -1, -1):
+                cell = parts[i]
+                if re.search(r'[a-zA-Z×xXcm/\\\\]', cell):
+                    continue
+                if re.search(r'\d{3,}', cell) and i >= 1:
+                    # 确保前一列（尺寸列）包含字母或×则是组合规格行，不属于常规价格行
+                    prev = parts[i - 1] if i >= 1 else ""
+                    if re.search(r'[×xX]', prev):
+                        continue  # 前一列是尺寸（含×），本列为长度而非价格
+                    price_col = i
+                    break
+        if price_col is None:
+            continue
+        spec_name = parts[0]
+        size_col = parts[1] if len(parts) >= 2 else ""
+        raw_price = parts[price_col]
+        price_clean = raw_price.replace('¥', '').replace('￥', '').replace('元', '').replace(',', '').strip()
+        if re.match(r'^\d{3,}$', price_clean):
+            formatted = f"{spec_name} → {size_col}, ¥{int(price_clean):,}"
+            rows.append(formatted)
+        if len(rows) >= max_rows:
+            break
+    return rows
+
+
 def _parse_md_product(filepath, rel_path):
     """解析单个 md 文件，返回结构化产品字典"""
     with open(filepath, "r", encoding="utf-8") as f:
@@ -150,6 +200,7 @@ def _parse_md_product(filepath, rel_path):
         "specs": specs[:3],
         "bed_frame_height": bed_frame_height,
         "mattress_thickness": mattress_thickness,
+        "price_rows": _extract_price_rows(text, max_rows=8),
     }
 
 
@@ -261,6 +312,8 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, ke
             line += f" | 卖点: {p['tagline']}"
         if p.get("features"):
             line += f" | 特点: {'; '.join(p['features'][:2])}"
+        if p.get("price_rows"):
+            line += "\n    " + "\n    ".join(p["price_rows"][:6])
         lines.append(line)
 
     summary = "\n".join(lines) if lines else "（无匹配产品）"
@@ -492,6 +545,7 @@ with main_tab1:
         4. ✅ **严格按采购清单推荐**：只推荐客户勾选的品类，未勾选的品类不要推荐。
         5. 💤 **融入科学睡眠理念**。
         6. 🛌 **床垫厚度匹配**：计算睡眠总高度时使用床架标注的**床身高度**（即床架平台离地高度），搭配床垫后总高度建议 45~55cm，**非**床头靠背高度。
+        7. ⚠️ **价格必须使用候选产品中标注的真实价格**：每个产品下方标注有具体的规格价格表（如"1.5右 → 126cm, ¥5,099"），请直接从这些数据中引用价格，**不得自行编造价格**。如候选产品中无对应规格则如实说明。
 
 【输出结构】：
 一、空间尺寸与气场碰撞分析
@@ -625,7 +679,7 @@ with main_tab2:
 【导购要求】：{guide_query}
 
 【输出要求】：
-1. 列出符合条件的产品。
+1. 列出符合条件的产品，**必须使用候选产品中标注的真实价格**（下方每个产品都有具体的规格价格表），不得自行编造价格。
 2. 涉及床+床垫搭配时说明高度适配性：使用床架标注的**床身高度**（平台离地高）搭配床垫，总睡眠高度建议 45~55cm，**非**床头靠背高度。
 3. 每项包含：型号、规格、成交价、推荐理由。"""
 
