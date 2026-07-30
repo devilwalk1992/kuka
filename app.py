@@ -27,6 +27,50 @@ JSON_INDEX_PATH = os.path.join(MD_DB_DIR, "product_images.json")
 
 CATEGORY_MAP = {"沙发": "沙发", "床": "床架", "床垫": "床垫", "配套": "配套"}
 
+# 颜色色调分类规则（用于产品配色匹配墙面/地面颜色）
+# 优先匹配长关键词，再匹配短关键词
+_COLOR_TONE_RULES = [
+    # 深色系
+    (["曜石黑", "骑士黑", "星爵黑", "醇巧黑", "伯爵黑", "格调黑", "黑骑士", "黑武士",
+      "深烟灰", "耀夜灰", "火山灰", "墨灰色", "松烟褐", "暮山褐", "烟墨棕", "暗夜棕",
+      "暗驼棕", "深咖色", "午夜咖啡", "深棕色", "暗林绿", "松间绿", "暮夜紫", "高贵紫",
+      "复古红", "浆果红棕", "红松鼠", "秋柿橘", "琥珀橙", "落日橙", "晴空蓝", "岛屿蓝",
+      "曜钻蓝", "桃木褐棕", "岩岩褐", "深灰色", "星际黑", "松木棕", "琉璃棕", "栗壳棕",
+      "栗子棕", "栗壳色", "榛果褐", "核桃", "胡桃", "可可棕", "布朗棕", "丹麦棕",
+      "赫钻棕", "奶棕色", "暗夜", "耀夜", "暮山", "浆果", "烟霞栗", "暖栗色",
+      "星云灰", "银河灰", "鹰翼灰", "雾色灰", "月光灰", "轻影灰", "霜禾灰",
+      "蜜杏灰", "浅杏灰", "暖米灰", "深棕"], "深色系"),
+    # 浅色系
+    (["云石白", "云影白", "云月白", "月光白", "雪花石", "菊蕊白", "霜绒白", "流沙白",
+      "柔空白", "沙滩白", "大麦白", "乳酪白", "梨花白", "栀子白", "奶钻白", "萄苔白",
+      "韶粉白", "浅云白", "玉石色", "奶油白", "可可蛋奶", "鲜奶油", "燕麦拿铁",
+      "朗姆奶咖", "米白色", "晨青云", "海豚灰", "象牙灰", "轻影灰", "霜禾灰",
+      "蜜杏灰", "浅杏灰", "暖米灰", "雨雾灰", "杏灰色", "雾咖色", "沙丘色",
+      "古巴砂色", "燕麦色", "暖山玉", "初蕊粉", "梦幻粉", "奶酪薄荷绿",
+      "玛奇朵色", "宁和蓝", "岛屿蓝", "晴空蓝", "暖栗色", "大麦",
+      "霜绒", "米色", "米白", "奶白", "奶油", "奶咖", "浅杏", "浅灰", "浅云",
+      "流沙", "柔白", "云白", "雪花", "菊蕊", "象牙", "海豚", "晨青",
+      "乳酪", "燕麦", "朗姆", "蜜杏", "沙丘", "沙滩", "鲜奶油",
+      "雪花", "古巴", "纯白", "纯白"], "浅色系"),
+]
+
+
+def _classify_color_tone(color_names):
+    """根据颜色名称列表判断整体色调，返回 '浅色系' 或 '深色系'（默认深色系）"""
+    if not color_names:
+        return "深色系"
+    text = " ".join(color_names)
+    # 先检查深色系
+    for keywords, tone in _COLOR_TONE_RULES:
+        if any(kw in text for kw in keywords):
+            return tone
+    # 包含 "色" 但不含上述关键词，根据常见色名判断
+    if "白" in text or "米" in text or "奶" in text:
+        return "浅色系"
+    if "黑" in text or "灰" in text or "棕" in text or "褐" in text or "咖" in text or "深" in text:
+        return "深色系"
+    return "深色系"  # 默认深色
+
 
 # ==================== 3. 产品索引构建（解析 MD → 结构化数据）====================
 def _extract_price_rows(text, category, max_rows=8):
@@ -134,6 +178,22 @@ def _parse_md_product(filepath, rel_path):
             parts = [p.strip() for p in line.split("|") if p.strip()]
             if len(parts) >= 2:
                 colors.append(parts[1])
+
+    # 床架：从 "### 配色型号" 行提取颜色名称（如 "曜石黑"）
+    if not colors:
+        for line in text.split("\n"):
+            if "配色型号" in line:
+                # 格式: "### 配色型号: U652245/F652245-X 午夜咖啡（出样色）"
+                m = re.search(r'配色型号:.*?\s+(\S+)', line)
+                if m:
+                    cname = m.group(1).strip().rstrip("））")
+                    # 去除（出样色）（次配色）等后缀
+                    cname = re.sub(r'[（(].*?[）)]', '', cname).strip()
+                    if cname:
+                        colors.append(cname)
+
+    # 色调分类
+    color_tone = _classify_color_tone(colors)
 
     # 价格：从规格价格表提取（精确可靠，替换旧的全文档正则）
     price_rows, table_prices = _extract_price_rows(text, category, max_rows=8)
@@ -281,6 +341,7 @@ def _parse_md_product(filepath, rel_path):
         "tagline": tagline[:80],
         "features": features[:3],
         "colors": colors[:3],
+        "color_tone": color_tone,
         "min_price": min_price,
         "max_price": max_price,
         "lengths": sorted(set(lengths)),
@@ -299,7 +360,7 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v5_material"):
+def build_product_index_v3(_version="v6_color_tone"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
@@ -493,6 +554,8 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
             line += f" | 规格: {', '.join(p['specs'][:3])}"
         if p.get("colors"):
             line += f" | 配色: {'/'.join(p['colors'][:2])}"
+        if p.get("color_tone"):
+            line += f" | 色调: {p['color_tone']}"
         if p.get("bed_frame_height"):
             line += f" | 床身高度: {p['bed_frame_height']}cm"
         if p.get("mattress_thickness"):
@@ -752,6 +815,7 @@ with main_tab1:
         6. 🛌 **床垫厚度匹配**：计算睡眠总高度时使用床架标注的**床身高度**（即床架平台离地高度），搭配床垫后总高度建议 45~55cm，**非**床头靠背高度。
         7. ⚠️ **价格必须使用候选产品中标注的真实价格**：每个产品下方标注有具体的规格价格表（如"1.5右B+3左A丨扶手翻折 → 296cm, ¥12,399"），请直接从这些数据中引用价格，**不得自行编造价格**。如候选产品中无对应规格则如实说明。
         8. 🪑 **推荐餐桌时必须标配 4 把椅子**：配套产品中的餐台（如 PT3188T 等）必须搭配对应系列的餐椅（如 PT3188Y），且每张餐台搭配 4 把椅子计算总价。
+        9. 🎨 **色调匹配**：优先推荐与客户墙面/地面颜色同色调的产品。墙面浅色系（如奶咖色/奶油白/纯白）搭配浅色系产品，深色系墙面（太空灰/咖色护墙板）可搭配深色系产品形成层次感。地面同理。
 
 【输出结构】：
 一、空间尺寸与气场碰撞分析
