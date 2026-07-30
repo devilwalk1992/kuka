@@ -200,8 +200,9 @@ def _parse_md_product(filepath, rel_path):
     value_match = re.search(r'### 一句话价值塑造\s*\n+\s*(.+?)(?:\n|$)', text)
     tagline = value_match.group(1).strip() if value_match else ""
 
-    # 配色
+    # 配色 & 色号
     colors = []
+    color_codes = []
     in_color = False
     for line in text.split("\n"):
         if "配色与材质" in line:
@@ -211,19 +212,23 @@ def _parse_md_product(filepath, rel_path):
             parts = [p.strip() for p in line.split("|") if p.strip()]
             if len(parts) >= 2:
                 colors.append(parts[1])
+                if len(parts) >= 1:
+                    color_codes.append(parts[0])
 
-    # 床架：从 "### 配色型号" 行提取颜色名称（如 "曜石黑"）
+    # 床架：从 "### 配色型号" 行提取颜色名称和色号
     if not colors:
         for line in text.split("\n"):
             if "配色型号" in line:
-                # 格式: "### 配色型号: U652245/F652245-X 午夜咖啡（出样色）"
-                m = re.search(r'配色型号:.*?\s+(\S+)', line)
+                # 格式: "### 配色型号: T250133/F250133 明月灰（出样色）"
+                m = re.search(r'配色型号:\s*(\S+)\s+(\S+)', line)
                 if m:
-                    cname = m.group(1).strip()
-                    # 去除（出样色）（次配色）等后缀，如 "明月灰（出样色）" → "明月灰"
+                    code = m.group(1).strip()  # "T250133/F250133"
+                    cname = m.group(2).strip()
+                    # 去除（出样色）（次配色）等后缀
                     cname = re.sub(r'[（(][^）)]*[）)]', '', cname).strip()
                     if cname:
                         colors.append(cname)
+                        color_codes.append(code)
 
     # 色调分类
     color_tone = _classify_color_tone(colors)
@@ -374,6 +379,7 @@ def _parse_md_product(filepath, rel_path):
         "tagline": tagline[:80],
         "features": features[:3],
         "colors": colors[:3],
+        "color_codes": color_codes[:3],
         "color_tone": color_tone,
         "min_price": min_price,
         "max_price": max_price,
@@ -393,7 +399,7 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v7_fix_bed_color"):
+def build_product_index_v3(_version="v8_color_codes"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
@@ -538,6 +544,7 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
                 # 扩充 haystack：整合所有已提取字段，无需手动添加关键词
                 price_text = " ".join(p.get("price_rows", []))
                 colors_text = " ".join(p.get("colors", []))
+                codes_text = " ".join(p.get("color_codes", []))
                 spec_names_text = " ".join(p.get("all_spec_names", []))
                 component_text = ""
                 if p.get("sofa_components"):
@@ -550,7 +557,7 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
                 haystack = (
                     f"{p['category']} {model} {p['name']} {p['series']} "
                     f"{p.get('design_style','')} {p.get('tagline','')} "
-                    f"{colors_text} {price_text} {spec_names_text} {component_text} {dims_text} "
+                    f"{colors_text} {codes_text} {price_text} {spec_names_text} {component_text} {dims_text} "
                     f"{' '.join(p.get('features',[]))} "
                     f"{p.get('mattress_thickness','')} "
                     f"{p.get('material','')} {p.get('product_config','')} "
@@ -590,6 +597,8 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
             line += f" | 配色: {'/'.join(p['colors'][:2])}"
         if p.get("color_tone"):
             line += f" | 色调: {p['color_tone']}"
+        if p.get("color_codes"):
+            line += f" | 色号: {', '.join(p['color_codes'][:2])}"
         if p.get("bed_frame_height"):
             line += f" | 床身高度: {p['bed_frame_height']}cm"
         if p.get("mattress_thickness"):
@@ -1040,6 +1049,15 @@ with main_tab2:
             extra_kw = " ".join(model_patterns)
             if extra_kw.strip():
                 search_kw = guide_query + " " + extra_kw
+            # 色系关键词补充：用户搜"浅色床"，需匹配"浅色系"
+            if "浅色" in guide_query:
+                search_kw += " 浅色"
+            if "深色" in guide_query:
+                search_kw += " 深色"
+            if "浅色系" in guide_query or "浅色调" in guide_query:
+                search_kw += " 浅色系"
+            if "深色系" in guide_query or "深色调" in guide_query:
+                search_kw += " 深色系"
             candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw, min_candidates=999)
 
             # 如果查询中包含型号字样（如 B815PQ1），同时提供命名解读作为参考
