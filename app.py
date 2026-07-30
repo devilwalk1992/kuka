@@ -658,6 +658,14 @@ st.markdown("""
 
 
 # ==================== 7. 侧边栏 ====================
+# 默认值（侧边栏锁定时主页面仍可用）
+try:
+    _default_key = os.getenv("DEEPSEEK_API_KEY", "") or st.secrets.get("DEEPSEEK_API_KEY", "")
+except Exception:
+    _default_key = os.getenv("DEEPSEEK_API_KEY", "")
+api_key = _default_key
+model_name = "deepseek-v4-flash"
+
 with st.sidebar:
     # ---- 密码锁 ----
     if not st.session_state.sidebar_unlocked:
@@ -669,47 +677,38 @@ with st.sidebar:
                 st.rerun()
             else:
                 st.error("密码错误")
-        st.stop()
+    else:
+        st.header("⚙️ DeepSeek API 设置")
+        api_key = st.text_input("API Key（留空使用 secrets）", type="password", value=_default_key, placeholder="sk-...")
+        model_name = st.selectbox("模型选择", ["deepseek-v4-flash", "deepseek-v4-pro"], index=0)
+        st.divider()
+        st.header("📊 数据库状态")
+        st.success(f"✅ {len(product_index)} 个产品已索引\n({len(images_db)} 个图片映射)")
+        cat_counts = {}
+        for p in product_index.values():
+            c = p["category"]
+            cat_counts[c] = cat_counts.get(c, 0) + 1
+        debug_lines = [f"{k}: {v}个" for k, v in sorted(cat_counts.items())]
+        st.caption("📌 品类分布: " + " | ".join(debug_lines) if debug_lines else "⚠️ 索引为空")
+        md_files_found = 0
+        if os.path.exists(MD_DB_DIR):
+            for root, dirs, files in os.walk(MD_DB_DIR):
+                for f in files:
+                    if f.endswith(".md"):
+                        md_files_found += 1
+        st.caption(f"📁 markdown_db: {'存在' if os.path.exists(MD_DB_DIR) else '不存在'} | .md文件数: {md_files_found}")
+        st.divider()
+        st.caption("💡 版本: `ai导购助手0.0.0.2`")
 
-    st.header("⚙️ DeepSeek API 设置")
-    # 优先级：.env → st.secrets（Streamlit Cloud）→ 手动输入
-    try:
-        default_key = os.getenv("DEEPSEEK_API_KEY", "") or st.secrets.get("DEEPSEEK_API_KEY", "")
-    except Exception:
-        default_key = os.getenv("DEEPSEEK_API_KEY", "")
-    api_key = st.text_input("API Key（留空使用 secrets）", type="password", value=default_key, placeholder="sk-...")
-    model_name = st.selectbox("模型选择", ["deepseek-v4-flash", "deepseek-v4-pro"], index=0)
-    st.divider()
-    st.header("📊 数据库状态")
-    st.success(f"✅ {len(product_index)} 个产品已索引\n({len(images_db)} 个图片映射)")
-    # 诊断：各品类产品数
-    cat_counts = {}
-    for p in product_index.values():
-        c = p["category"]
-        cat_counts[c] = cat_counts.get(c, 0) + 1
-    debug_lines = [f"{k}: {v}个" for k, v in sorted(cat_counts.items())]
-    st.caption("📌 品类分布: " + " | ".join(debug_lines) if debug_lines else "⚠️ 索引为空")
-
-    # 紧急诊断：检查目录和文件
-    md_files_found = 0
-    if os.path.exists(MD_DB_DIR):
-        for root, dirs, files in os.walk(MD_DB_DIR):
-            for f in files:
-                if f.endswith(".md"):
-                    md_files_found += 1
-    st.caption(f"📁 markdown_db: {'存在' if os.path.exists(MD_DB_DIR) else '不存在'} | .md文件数: {md_files_found}")
-    st.divider()
-    st.caption("💡 版本: `ai导购助手0.0.0.2`")
-
-    st.divider()
-    with st.expander("📊 查询数据导出"):
-        st.caption(f"已记录 {_get_log_count()} 条查询")
-        if st.button("📥 下载 query_log.jsonl"):
-            if os.path.exists(QUERY_LOG_PATH):
-                with open(QUERY_LOG_PATH, "r", encoding="utf-8") as f:
-                    st.download_button("点击下载", f.read(), file_name="query_log.jsonl", mime="application/jsonl")
-            else:
-                st.info("暂无记录")
+        st.divider()
+        with st.expander("📊 查询数据导出"):
+            st.caption(f"已记录 {_get_log_count()} 条查询")
+            if st.button("📥 下载 query_log.jsonl"):
+                if os.path.exists(QUERY_LOG_PATH):
+                    with open(QUERY_LOG_PATH, "r", encoding="utf-8") as f:
+                        st.download_button("点击下载", f.read(), file_name="query_log.jsonl", mime="application/jsonl")
+                else:
+                    st.info("暂无记录")
 
 
 # ==================== 8. 顶部 Header ====================
