@@ -102,11 +102,11 @@ def _parse_md_product(filepath, rel_path):
     series_match = re.search(r'\*\*产品线\*\*\s*:\s*(.+)', text)
     series = series_match.group(1).strip() if series_match else ""
 
-    # 产品特点（取前 3 条）
+    # 产品特点/卖点（取前 3 条）
     features = []
     in_features = False
     for line in text.split("\n"):
-        if "产品特点" in line:
+        if "产品特点" in line or "产品核心卖点" in line:
             in_features = True
             continue
         if in_features:
@@ -261,6 +261,18 @@ def _parse_md_product(filepath, rel_path):
         if head_heights:
             bed_head_height = head_heights[0]
 
+    # 材质（床垫/配套通用）：如 "Sanitized®抑菌防螨面料+乳胶+平衡支撑绵+六环精钢连锁簧+护边系统"
+    material = ""
+    material_match = re.search(r'\*\*材质\*\*\s*:\s*(.+)', text)
+    if material_match:
+        material = material_match.group(1).strip()
+
+    # 产品配置（床垫专用）：含面料层/填充层/支撑层等
+    product_config = ""
+    config_match = re.search(r'\*\*产品配置\*\*:\s*\n((?:  .+\n?)+)', text)
+    if config_match:
+        product_config = config_match.group(1).strip().replace('\n  ', ' | ')
+
     return {
         "model": model,
         "name": name,
@@ -281,11 +293,13 @@ def _parse_md_product(filepath, rel_path):
         "sofa_components": sofa_components,
         "all_spec_names": all_spec_names,
         "bed_head_height": bed_head_height,
+        "material": material,
+        "product_config": product_config,
     }
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v4_price_fix"):
+def build_product_index_v3(_version="v5_material"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
@@ -445,6 +459,7 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
                     f"{colors_text} {price_text} {spec_names_text} {component_text} {dims_text} "
                     f"{' '.join(p.get('features',[]))} "
                     f"{p.get('mattress_thickness','')} "
+                    f"{p.get('material','')} {p.get('product_config','')} "
                 ).lower()
                 # 1) 直接子串匹配
                 if any(t in haystack for t in terms):
