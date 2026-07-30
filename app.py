@@ -219,9 +219,9 @@ def _parse_md_product(filepath, rel_path):
                 # 格式: "### 配色型号: U652245/F652245-X 午夜咖啡（出样色）"
                 m = re.search(r'配色型号:.*?\s+(\S+)', line)
                 if m:
-                    cname = m.group(1).strip().rstrip("））")
-                    # 去除（出样色）（次配色）等后缀
-                    cname = re.sub(r'[（(].*?[）)]', '', cname).strip()
+                    cname = m.group(1).strip()
+                    # 去除（出样色）（次配色）等后缀，如 "明月灰（出样色）" → "明月灰"
+                    cname = re.sub(r'[（(][^）)]*[）)]', '', cname).strip()
                     if cname:
                         colors.append(cname)
 
@@ -393,7 +393,7 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v6_color_tone"):
+def build_product_index_v3(_version="v7_fix_bed_color"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
