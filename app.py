@@ -196,11 +196,40 @@ def _parse_md_product(filepath, rel_path):
                 if not line.strip().startswith('|'):
                     continue
                 parts = [p.strip() for p in line.split('|') if p.strip()]
-                if len(parts) >= 2 and not re.search(r'项目|尺寸|组件|宽度|扶手高度', ''.join(parts[:2])):
+                if len(parts) >= 2 and not re.search(r'项目|尺寸|组件|宽度', ''.join(parts[:2])):
                     dim_name = parts[0]
                     dim_val = re.search(r'(\d+)', parts[1])
                     if dim_val:
                         sofa_dimensions[dim_name] = int(dim_val.group(1))
+
+    # 沙发组件尺寸（沙发专用）：从 ### 尺寸详解 → **组件尺寸：** 表中提取
+    # 如 "3右A/3左A丨扶手翻折 → 186cm"
+    sofa_components = {}
+    all_spec_names = []
+    if category == "沙发":
+        # 解析组件尺寸表
+        comp_table = re.search(r'\*\*组件尺寸：\*\*\s*\n\|.+\n(\|.+\n?)+', text)
+        if comp_table:
+            for line in comp_table.group(0).split('\n'):
+                if not line.strip().startswith('|'):
+                    continue
+                parts = [p.strip() for p in line.split('|') if p.strip()]
+                if len(parts) >= 2 and not re.search(r'组件|宽度|扶手高度|色号', ''.join(parts[:2])):
+                    comp_name = parts[0]
+                    comp_width = re.search(r'(\d+)', parts[1])
+                    if comp_width:
+                        comp_val = int(comp_width.group(1))
+                        sofa_components[comp_name] = comp_val
+                        all_spec_names.append(comp_name)
+        # 解析规格尺寸表中的所有规格名（含单个和组合），用于搜索
+        spec_section_raw = re.search(r'### 规格尺寸\s*\n\|.+?\n(\|.+\n?)+', text)
+        if spec_section_raw:
+            for line in spec_section_raw.group(0).split("\n"):
+                parts = [p.strip() for p in line.split("|") if p.strip()]
+                if parts and re.search(r'规格|尺寸|型号|成交价|色号', ''.join(parts[:2])):
+                    continue
+                if parts:
+                    all_spec_names.append(parts[0])
 
     # 床头高度（床架专用）：从床架外尺寸(总长×总宽×头高)中提取
     # 如 "228×166×115" → 头高 115cm
@@ -249,6 +278,8 @@ def _parse_md_product(filepath, rel_path):
         "price_rows": price_rows,
         "design_style": design_style,
         "sofa_dimensions": sofa_dimensions,
+        "sofa_components": sofa_components,
+        "all_spec_names": all_spec_names,
         "bed_head_height": bed_head_height,
     }
 
@@ -289,6 +320,31 @@ def load_images_v2():
 
 product_index, _ = build_product_index_v3()
 images_db = load_images_v2()
+
+# 加载卧室产品命名结构说明
+NAMING_DOC_PATH = os.path.join(MD_DB_DIR, "床", "卧室产品命名结构.md")
+BED_NAMING_GUIDE = ""
+if os.path.exists(NAMING_DOC_PATH):
+    with open(NAMING_DOC_PATH, "r", encoding="utf-8") as f:
+        BED_NAMING_GUIDE = f.read()
+
+# 命名问题关键词
+NAMING_KEYWORDS = ["命名", "含义", "代表什么", "是什么意思", "怎么读", "编码", "货号", "FQ1", "PQ1", "Q1", "Q7", "F1",
+                   "结构码", "面料码", "系列前缀", "齐边", "非齐边", "排骨条", "排骨架", "型号解释", "型号解读",
+                   "怎么看的", "怎么看", "什么意思", "什么含义"]
+
+
+def _is_naming_query(query):
+    """判断用户是否在问产品命名/型号含义类问题
+    如果包含具体产品型号（如 YS.B525PQ1），则走产品搜索+命名参考，不走纯命名路径"""
+    q = query.lower()
+    # 如果包含具体产品型号模式（字母+数字+字母数字），是产品搜索不是纯命名问题
+    if re.search(r'[A-Za-z]{1,4}\.?\d{3,}[A-Za-z0-9]*', query):
+        return False
+    for kw in NAMING_KEYWORDS:
+        if kw.lower() in q:
+            return True
+    return False
 
 
 # ==================== 4. 预筛选函数（纯 Python，微秒级）====================
@@ -374,10 +430,19 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
                 # 扩充 haystack：整合所有已提取字段，无需手动添加关键词
                 price_text = " ".join(p.get("price_rows", []))
                 colors_text = " ".join(p.get("colors", []))
+                spec_names_text = " ".join(p.get("all_spec_names", []))
+                component_text = ""
+                if p.get("sofa_components"):
+                    for cname, cwidth in p["sofa_components"].items():
+                        component_text += f" {cname} {cwidth}cm"
+                dims_text = ""
+                if p.get("sofa_dimensions"):
+                    for dk, dv in p["sofa_dimensions"].items():
+                        dims_text += f" {dk} {dv}cm"
                 haystack = (
                     f"{p['category']} {model} {p['name']} {p['series']} "
                     f"{p.get('design_style','')} {p.get('tagline','')} "
-                    f"{colors_text} {price_text} "
+                    f"{colors_text} {price_text} {spec_names_text} {component_text} {dims_text} "
                     f"{' '.join(p.get('features',[]))} "
                     f"{p.get('mattress_thickness','')} "
                 ).lower()
@@ -435,6 +500,9 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
                     parts.append(f"{key}: {dims[key]}cm")
             if parts:
                 line += f" | {' '.join(parts)}"
+        if p.get("sofa_components"):
+            comps = p["sofa_components"]
+            line += f" | 组件尺寸: {', '.join(f'{k}={v}cm' for k, v in list(comps.items())[:6])}"
         lines.append(line)
 
     summary = "\n".join(lines) if lines else "（无匹配产品）"
@@ -770,36 +838,68 @@ with main_tab2:
             st.error("❌ 请先配置 DeepSeek API Key")
             st.stop()
 
-        # 从查询中提取关键词和预算
-        budget_match = re.search(r'(\d{4,})\s*元|\d{4,}\s*以内|\d{4,}\s*内|预算(\d{4,})', guide_query)
-        max_price = int(budget_match.group(1) or budget_match.group(2) or 0) if budget_match else None
+        # 判断是否为命名/型号解读类问题
+        if _is_naming_query(guide_query):
+            # 命名问题：直接使用命名结构文档回答，不查产品
+            naming_prompt = f"""你是一位顾家家居产品专家。用户正在询问床类产品型号的命名规则。
 
-        kw = ""
-        if "床垫" in guide_query:
-            kw = "床垫"
-        elif "床" in guide_query or "软体床" in guide_query:
-            kw = "床架"
-        elif "沙发" in guide_query:
-            kw = "沙发"
+请参考以下《卧室产品命名结构说明》文档，用通俗易懂的语言解答用户的疑问。
 
-        cat_map = {"床垫": "床垫", "床架": "床架", "沙发": "沙发"}
-        category = cat_map.get(kw)
+【命名结构文档】：
+{BED_NAMING_GUIDE}
 
-        # 增强关键词提取：同时保留原始查询 + 提取的数字/型号关键词
-        # 用 \d{2,} 代替 \b\d{3,4}\b，因为 \b 在中文前后（如"815的床"）会失效
-        search_kw = guide_query
-        model_patterns = re.findall(r'[A-Za-z]{1,4}\.?\d{2,4}[A-Za-z0-9]*|\d{2,}', guide_query)
-        extra_kw = " ".join(model_patterns)
-        if extra_kw.strip():
-            search_kw = guide_query + " " + extra_kw
-        candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw, min_candidates=999)
+【用户提问】：{guide_query}
 
-        guide_prompt = f"""你是一位精准的家居与睡眠产品检索助手。**以下列出了所有符合条件的候选产品**，请逐一列出并说明。如无合适产品则如实说明。
+【输出要求】：
+1. 用简明清晰的语言解释命名规则
+2. 如果用户提到了具体型号（如 FQ1PQ4），请按文档解析该型号的各段位含义
+3. 如果用户没有具体型号，用文档中的示例（如 ZX.B712PQ7）来演示如何解读
+4. 让导购能看懂并能快速向客户解释"""
+            try:
+                result_placeholder = st.empty()
+                full_result = ""
+                for chunk in stream_response(api_key, model_name, naming_prompt, f"用户问题：{guide_query}"):
+                    full_result += chunk
+                    result_placeholder.markdown(re.sub(r'~~', '', full_result) + "▌")
+                result_placeholder.markdown(re.sub(r'~~', '', full_result))
+            except Exception as e:
+                st.error(f"❌ 检索失败: {e}")
+        else:
+            # 产品检索：从查询中提取关键词和预算
+            budget_match = re.search(r'(\d{4,})\s*元|\d{4,}\s*以内|\d{4,}\s*内|预算(\d{4,})', guide_query)
+            max_price = int(budget_match.group(1) or budget_match.group(2) or 0) if budget_match else None
+
+            kw = ""
+            if "床垫" in guide_query:
+                kw = "床垫"
+            elif "床" in guide_query or "软体床" in guide_query:
+                kw = "床架"
+            elif "沙发" in guide_query:
+                kw = "沙发"
+
+            cat_map = {"床垫": "床垫", "床架": "床架", "沙发": "沙发"}
+            category = cat_map.get(kw)
+
+            # 增强关键词提取：同时保留原始查询 + 提取的数字/型号关键词
+            # 用 \d{2,} 代替 \b\d{3,4}\b，因为 \b 在中文前后（如"815的床"）会失效
+            search_kw = guide_query
+            model_patterns = re.findall(r'[A-Za-z]{1,4}\.?\d{2,4}[A-Za-z0-9]*|\d{2,}', guide_query)
+            extra_kw = " ".join(model_patterns)
+            if extra_kw.strip():
+                search_kw = guide_query + " " + extra_kw
+            candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw, min_candidates=999)
+
+            # 如果查询中包含型号字样（如 B815PQ1），同时提供命名解读作为参考
+            naming_context = ""
+            if re.search(r'[A-Z]{1,3}\.?\d{3,}', guide_query):
+                naming_context = f"\n\n【参考 - 床型号命名规则】\n当客户问起型号含义时，可参考以下规则解析：\n" + BED_NAMING_GUIDE[:1500]
+
+            guide_prompt = f"""你是一位精准的家居与睡眠产品检索助手。**以下列出了所有符合条件的候选产品**，请逐一列出并说明。如无合适产品则如实说明。
 
 【所有候选产品】：
 {summary}
 
-【导购要求】：{guide_query}
+【导购要求】：{guide_query}{naming_context}
 
 【输出要求】：
 1. **列出所有候选产品**，逐一说明每个产品的型号、规格、成交价和推荐理由。
@@ -807,35 +907,35 @@ with main_tab2:
 3. 涉及床+床垫搭配时说明高度适配性：使用床架标注的**床身高度**（平台离地高）搭配床垫，总睡眠高度建议 45~55cm，**非**床头靠背高度。
 4. 涉及餐桌时，必须搭配 4 把同系列餐椅计算总价。"""
 
-        try:
-            result_placeholder = st.empty()
-            full_result = ""
-            for chunk in stream_response(api_key, model_name, guide_prompt, f"导购检索：{guide_query}"):
-                full_result += chunk
-                result_placeholder.markdown(re.sub(r'~~', '', full_result) + "▌")
-            result_placeholder.markdown(re.sub(r'~~', '', full_result))
+            try:
+                result_placeholder = st.empty()
+                full_result = ""
+                for chunk in stream_response(api_key, model_name, guide_prompt, f"导购检索：{guide_query}"):
+                    full_result += chunk
+                    result_placeholder.markdown(re.sub(r'~~', '', full_result) + "▌")
+                result_placeholder.markdown(re.sub(r'~~', '', full_result))
 
-            st.markdown("---")
-            st.markdown("### 🖼️ 匹配产品图片")
-            matched_models = set(re.findall(r'[A-Za-z0-9.]+', full_result))
-            display_count = 0
-            for folder_key, img_dict in images_db.items():
-                if any(m.upper() in folder_key.upper() for m in matched_models if len(m) >= 4):
-                    display_count += 1
-                    st.markdown(f"#### 📦 {folder_key}")
-                    tab_cat, tab_scene, tab_home = st.tabs(["📦 规格/浏览图", "🏡 展厅/场景效果图", "📸 客户入户实景图"])
-                    for tab_name, img_key in [("cat", "catalog_images"), ("scene", "scene_images"), ("home", "home_images")]:
-                        with [tab_cat, tab_scene, tab_home][["cat", "scene", "home"].index(tab_name)]:
-                            imgs = img_dict.get(img_key, []) or (img_dict.get("real_images", []) if img_key == "home_images" else [])
-                            if imgs:
-                                for i in range(0, len(imgs), 3):
-                                    cols = st.columns(3)
-                                    for j, img_p in enumerate(imgs[i:i+3]):
-                                        with cols[j]:
-                                            st.image(img_p, use_container_width=True)
-                            else:
-                                st.info({"cat": "暂无规格/浏览图", "scene": "暂无展厅/场景效果图", "home": "📸 暂无客户入户实景图"}[tab_name])
-            if display_count == 0:
-                st.info("💡 提示：未能匹配到图片。")
-        except Exception as e:
-            st.error(f"❌ 检索失败: {e}")
+                st.markdown("---")
+                st.markdown("### 🖼️ 匹配产品图片")
+                matched_models = set(re.findall(r'[A-Za-z0-9.]+', full_result))
+                display_count = 0
+                for folder_key, img_dict in images_db.items():
+                    if any(m.upper() in folder_key.upper() for m in matched_models if len(m) >= 4):
+                        display_count += 1
+                        st.markdown(f"#### 📦 {folder_key}")
+                        tab_cat, tab_scene, tab_home = st.tabs(["📦 规格/浏览图", "🏡 展厅/场景效果图", "📸 客户入户实景图"])
+                        for tab_name, img_key in [("cat", "catalog_images"), ("scene", "scene_images"), ("home", "home_images")]:
+                            with [tab_cat, tab_scene, tab_home][["cat", "scene", "home"].index(tab_name)]:
+                                imgs = img_dict.get(img_key, []) or (img_dict.get("real_images", []) if img_key == "home_images" else [])
+                                if imgs:
+                                    for i in range(0, len(imgs), 3):
+                                        cols = st.columns(3)
+                                        for j, img_p in enumerate(imgs[i:i+3]):
+                                            with cols[j]:
+                                                st.image(img_p, use_container_width=True)
+                                else:
+                                    st.info({"cat": "暂无规格/浏览图", "scene": "暂无展厅/场景效果图", "home": "📸 暂无客户入户实景图"}[tab_name])
+                if display_count == 0:
+                    st.info("💡 提示：未能匹配到图片。")
+            except Exception as e:
+                st.error(f"❌ 检索失败: {e}")
