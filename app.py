@@ -521,6 +521,7 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
                     f"{' '.join(p.get('features',[]))} "
                     f"{p.get('mattress_thickness','')} "
                     f"{p.get('material','')} {p.get('product_config','')} "
+                    f"{p.get('color_tone','')} "
                 ).lower()
                 # 1) 直接子串匹配
                 if any(t in haystack for t in terms):
