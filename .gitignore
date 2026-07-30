@@ -59,3 +59,5 @@ Intelligent mattress__products/
 *.zip
 *.rar
 *.7z
+# 查询日志
+query_log.jsonl

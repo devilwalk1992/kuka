@@ -24,6 +24,7 @@ MD_DB_DIR = os.path.join(BASE_DIR, "markdown_db")
 if not os.path.exists(MD_DB_DIR):
     MD_DB_DIR = os.path.join(os.getcwd(), "markdown_db")
 JSON_INDEX_PATH = os.path.join(MD_DB_DIR, "product_images.json")
+QUERY_LOG_PATH = os.path.join(BASE_DIR, "query_log.jsonl")
 
 CATEGORY_MAP = {"沙发": "沙发", "床": "床架", "床垫": "床垫", "配套": "配套"}
 
@@ -72,7 +73,34 @@ def _classify_color_tone(color_names):
     return "深色系"  # 默认深色
 
 
-# ==================== 3. 产品索引构建（解析 MD → 结构化数据）====================
+# ==================== 3. 数据收集 ====================
+def _log_query(event_type, data):
+    """记录用户查询/操作到 query_log.jsonl 文件，用于后续高频问题分析"""
+    import datetime
+    record = {
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "event_type": event_type,
+        "data": data,
+    }
+    try:
+        with open(QUERY_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # 日志写入失败不影响主流程
+
+
+def _get_log_count():
+    """返回 query_log.jsonl 的记录条数"""
+    try:
+        if os.path.exists(QUERY_LOG_PATH):
+            with open(QUERY_LOG_PATH, "r", encoding="utf-8") as f:
+                return sum(1 for _ in f)
+    except Exception:
+        pass
+    return 0
+
+
+# ==================== 4. 产品索引构建（解析 MD → 结构化数据）====================
 def _extract_price_rows(text, category, max_rows=8):
     """提取MD文件中规格-价格行，返回 (display_rows, all_prices)
     display_rows: 格式化的显示行（沙发只保留组合规格）
@@ -656,6 +684,16 @@ with st.sidebar:
     st.divider()
     st.caption("💡 版本: `ai导购助手0.0.0.2`")
 
+    st.divider()
+    with st.expander("📊 查询数据导出"):
+        st.caption(f"已记录 {_get_log_count()} 条查询")
+        if st.button("📥 下载 query_log.jsonl"):
+            if os.path.exists(QUERY_LOG_PATH):
+                with open(QUERY_LOG_PATH, "r", encoding="utf-8") as f:
+                    st.download_button("点击下载", f.read(), file_name="query_log.jsonl", mime="application/jsonl")
+            else:
+                st.info("暂无记录")
+
 
 # ==================== 8. 顶部 Header ====================
 st.markdown('<div class="main-header">🛋️ KUKA 赛博软装与睡眠主理人</div>', unsafe_allow_html=True)
@@ -742,6 +780,17 @@ with main_tab1:
             if not api_key.startswith("sk-"):
                 st.error("❌ 请先配置 DeepSeek API Key（侧边栏或 secrets.toml）")
                 st.stop()
+
+            # 记录全屋搭配查询
+            _log_query("full_plan", {
+                "style": style_pref, "room_width": room_width, "sofa_wall_len": sofa_wall_len,
+                "wall_color": wall_color, "floor_color": floor_color,
+                "need_sofa": need_sofa, "need_chair": need_chair,
+                "need_table": need_table, "need_tv": need_tv, "need_dining": need_dining,
+                "bedroom_count": len(bedroom_configs),
+                "bedroom_detail": [{"name": b["room_name"], "spec": b["bed_spec"], "mat": b["mat_pref"]} for b in bedroom_configs],
+                "budget": total_budget, "special_tags": special_tags, "custom_notes": custom_notes,
+            })
 
             # ---- 预筛选：按品类+预算筛选候选产品 ----
             sofa_budget = int(total_budget * 0.50)   # 沙发约占 50%
@@ -917,6 +966,14 @@ with main_tab2:
         if not api_key.startswith("sk-"):
             st.error("❌ 请先配置 DeepSeek API Key")
             st.stop()
+
+        # 记录导购查询
+        _log_query("guide_search", {"query": guide_query, "source": "quick_btn" if guide_query in [
+            "1.8米主卧软体床，推荐匹配高度适中的护脊床垫，一套预算8000以内",
+            "适合青少年或儿童的1.5米护脊床垫，透气环保硬质支撑",
+            "尺寸3米左右，价格10000以内，意式风格真皮或科技布沙发",
+            "主卧独立袋装弹簧床垫，抗干扰抗震动，适合浅睡眠人群",
+        ] else "manual_input"})
 
         # 判断是否为命名/型号解读类问题
         if _is_naming_query(guide_query):
