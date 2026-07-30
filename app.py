@@ -15,6 +15,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# 侧边栏密码认证
+if "sidebar_unlocked" not in st.session_state:
+    st.session_state.sidebar_unlocked = False
+SIDEBAR_PASSWORD = "920736"
+
 # ==================== 2. 路径 ====================
 try:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -654,6 +659,18 @@ st.markdown("""
 
 # ==================== 7. 侧边栏 ====================
 with st.sidebar:
+    # ---- 密码锁 ----
+    if not st.session_state.sidebar_unlocked:
+        st.markdown("### 🔒 管理面板已锁定")
+        pwd = st.text_input("请输入管理密码解锁", type="password", key="sidebar_pwd")
+        if st.button("解锁", use_container_width=True):
+            if pwd == SIDEBAR_PASSWORD:
+                st.session_state.sidebar_unlocked = True
+                st.rerun()
+            else:
+                st.error("密码错误")
+        st.stop()
+
     st.header("⚙️ DeepSeek API 设置")
     # 优先级：.env → st.secrets（Streamlit Cloud）→ 手动输入
     try:
