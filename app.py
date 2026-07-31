@@ -399,7 +399,7 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v8_color_codes"):
+def build_product_index_v3(_version="v9_product_config"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
@@ -603,6 +603,10 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
             line += f" | 床身高度: {p['bed_frame_height']}cm"
         if p.get("mattress_thickness"):
             line += f" | 适配床垫厚度: {p['mattress_thickness']}"
+        if p.get("product_config"):
+            line += f"\n    产品配置: {p['product_config']}"
+        if p.get("material"):
+            line += f"\n    材质: {p['material']}"
         if p.get("bed_head_height") and p["bed_head_height"] > 0:
             line += f" | 床头高度: {p['bed_head_height']}cm"
         if p.get("tagline"):
