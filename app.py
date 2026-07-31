@@ -371,6 +371,12 @@ def _parse_md_product(filepath, rel_path):
     if config_match:
         product_config = config_match.group(1).strip().replace('\n  ', ' | ')
 
+    # 靠包类型（床架专用）：上下左右分段式/仅上下分段式/仅左右分段式/整体无分段/无床头
+    headboard_type = ""
+    hb_match = re.search(r'\*\*靠包类型\*\*\s*:\s*(.+)', text)
+    if hb_match:
+        headboard_type = hb_match.group(1).strip()
+
     return {
         "model": model,
         "name": name,
@@ -395,11 +401,12 @@ def _parse_md_product(filepath, rel_path):
         "bed_head_height": bed_head_height,
         "material": material,
         "product_config": product_config,
+        "headboard_type": headboard_type,
     }
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v9_product_config"):
+def build_product_index_v3(_version="v10_headboard_type"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
@@ -561,6 +568,7 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
                     f"{' '.join(p.get('features',[]))} "
                     f"{p.get('mattress_thickness','')} "
                     f"{p.get('material','')} {p.get('product_config','')} "
+                    f"{p.get('headboard_type','')} "
                     f"{p.get('color_tone','')} "
                 ).lower()
                 # 1) 直接子串匹配
@@ -603,6 +611,8 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
             line += f" | 床身高度: {p['bed_frame_height']}cm"
         if p.get("mattress_thickness"):
             line += f" | 适配床垫厚度: {p['mattress_thickness']}"
+        if p.get("headboard_type"):
+            line += f" | 靠包类型: {p['headboard_type']}"
         if p.get("product_config"):
             line += f"\n    产品配置: {p['product_config']}"
         if p.get("material"):
