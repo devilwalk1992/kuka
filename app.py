@@ -1471,7 +1471,6 @@ with main_tab1:
             except Exception as e:
                 st.error(f"❌ API 调用失败: {e}")
                 st.session_state.query_in_progress = False
-                st.rerun()
                 st.stop()
 
             # 图集
@@ -1505,7 +1504,6 @@ with main_tab1:
 
             # 解锁按钮，允许再次查询
             st.session_state.query_in_progress = False
-            st.rerun()
         else:
             # 如果已有方案报告（例如微调后刷新页面），直接展示
             if st.session_state.current_report:
@@ -1589,7 +1587,6 @@ with main_tab1:
                         st.error(f"❌ 微调失败: {e}")
                     finally:
                         st.session_state.refine_in_progress = False
-                        st.rerun()
 
 
 # =========================================================================
