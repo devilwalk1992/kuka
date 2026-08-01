@@ -20,6 +20,12 @@ if "sidebar_unlocked" not in st.session_state:
     st.session_state.sidebar_unlocked = False
 SIDEBAR_PASSWORD = "920736"
 
+# 方案微调：初始化当前报告存储
+if "current_report" not in st.session_state:
+    st.session_state.current_report = ""
+if "report_history" not in st.session_state:
+    st.session_state.report_history = []
+
 # ==================== 2. 路径 ====================
 try:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -975,6 +981,10 @@ with main_tab1:
 
             try:
                 full_response = st.write_stream(stream_response(api_key, model_name, system_prompt, user_prompt))
+                # 保存当前报告到 session_state，供后续微调使用
+                st.session_state.current_report = full_response
+                # 记录历史版本
+                st.session_state.report_history.append(full_response)
             except Exception as e:
                 st.error(f"❌ API 调用失败: {e}")
                 st.stop()
@@ -1008,7 +1018,48 @@ with main_tab1:
             if display_count == 0:
                 st.info("💡 提示：未能根据方案自动匹配到本地图片。")
         else:
-            st.info("👈 请在左侧填写客户的需求和预算。")
+            # 如果已有方案报告（例如微调后刷新页面），直接展示
+            if st.session_state.current_report:
+                st.markdown(st.session_state.current_report)
+            else:
+                st.info("👈 请在左侧填写客户的需求和预算。")
+
+    # --- 方案微调区域（放在 if/else 外部，有报告时才显示） ---
+        if st.session_state.current_report:
+            st.divider()
+            st.subheader("💬 对方案有不满意？告诉 AI 进行调整")
+            edit_instruction = st.text_input(
+                "输入修改要求",
+                placeholder="例如：把客厅沙发换成更便宜的科技布款，主卧床垫预算提高到 6000",
+                key="edit_instruction_input"
+            )
+            if st.button("🔄 重新微调方案", key="refine_btn"):
+                if not edit_instruction:
+                    st.warning("请先输入修改要求")
+                else:
+                    if not api_key.startswith("sk-"):
+                        st.error("❌ 请先配置 DeepSeek API Key")
+                        st.stop()
+                    # 记录微调查询
+                    _log_query("refine_plan", {"instruction": edit_instruction})
+                    # 组装精简的微调 Prompt
+                    edit_prompt = f"""你是一名专业软装设计师。以下是之前为客户生成的方案：
+    ---
+    {st.session_state.current_report}
+    ---
+    客户提出了以下修改意见：
+    "{edit_instruction}"
+
+    请在保留原方案合理部分的基础上，针对客户意见重新更新一份完整软装报告与报价单。
+    """
+                    try:
+                        st.info("🤖 AI 正在根据您的意见调整方案...")
+                        new_report = st.write_stream(stream_response(api_key, model_name, edit_prompt, f"客户修改意见：{edit_instruction}"))
+                        st.session_state.current_report = new_report
+                        st.session_state.report_history.append(new_report)
+                        st.success("✅ 方案已更新！")
+                    except Exception as e:
+                        st.error(f"❌ 微调失败: {e}")
 
 
 # =========================================================================
