@@ -34,6 +34,18 @@ if "report_history" not in st.session_state:
 if "quote_form_data" not in st.session_state:
     st.session_state.quote_form_data = {}
 
+# 防重复点击锁：标记查询是否正在执行中
+if "query_in_progress" not in st.session_state:
+    st.session_state.query_in_progress = False
+if "trigger_query" not in st.session_state:
+    st.session_state.trigger_query = False
+if "guide_query_in_progress" not in st.session_state:
+    st.session_state.guide_query_in_progress = False
+if "trigger_guide_query" not in st.session_state:
+    st.session_state.trigger_guide_query = False
+if "refine_in_progress" not in st.session_state:
+    st.session_state.refine_in_progress = False
+
 # ==================== 2. 路径 ====================
 try:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1275,14 +1287,22 @@ with main_tab1:
             custom_notes = st.text_input("补充备注：", placeholder="例如：主卧想要头层牛皮床、床垫不要太厚等...")
 
         st.markdown("---")
-        submit_btn = st.button("🚀 一键生成全屋 AI 搭配与睡眠方案", type="primary", use_container_width=True)
+        submit_btn = st.button("🚀 一键生成全屋 AI 搭配与睡眠方案", type="primary", use_container_width=True, disabled=st.session_state.query_in_progress)
 
     with col_right:
         st.subheader("✨ AI 搭配报告与推荐展示")
 
         if submit_btn:
+            st.session_state.query_in_progress = True
+            st.session_state.trigger_query = True
+            st.rerun()
+
+        if st.session_state.get("query_in_progress") and st.session_state.get("trigger_query"):
+            st.session_state.trigger_query = False
             if not api_key.startswith("sk-"):
                 st.error("❌ 请先配置 DeepSeek API Key（侧边栏或 secrets.toml）")
+                st.session_state.query_in_progress = False
+                st.rerun()
                 st.stop()
 
             # 记录全屋搭配查询
@@ -1450,6 +1470,8 @@ with main_tab1:
                 st.session_state.report_history.append(full_response)
             except Exception as e:
                 st.error(f"❌ API 调用失败: {e}")
+                st.session_state.query_in_progress = False
+                st.rerun()
                 st.stop()
 
             # 图集
@@ -1480,6 +1502,10 @@ with main_tab1:
 
             if display_count == 0:
                 st.info("💡 提示：未能根据方案自动匹配到本地图片。")
+
+            # 解锁按钮，允许再次查询
+            st.session_state.query_in_progress = False
+            st.rerun()
         else:
             # 如果已有方案报告（例如微调后刷新页面），直接展示
             if st.session_state.current_report:
@@ -1532,12 +1558,14 @@ with main_tab1:
                 placeholder="例如：把客厅沙发换成更便宜的科技布款，主卧床垫预算提高到 6000",
                 key="edit_instruction_input"
             )
-            if st.button("🔄 重新微调方案", key="refine_btn"):
+            if st.button("🔄 重新微调方案", key="refine_btn", disabled=st.session_state.refine_in_progress):
                 if not edit_instruction:
                     st.warning("请先输入修改要求")
                 else:
+                    st.session_state.refine_in_progress = True
                     if not api_key.startswith("sk-"):
                         st.error("❌ 请先配置 DeepSeek API Key")
+                        st.session_state.refine_in_progress = False
                         st.stop()
                     # 记录微调查询
                     _log_query("refine_plan", {"instruction": edit_instruction})
@@ -1559,6 +1587,9 @@ with main_tab1:
                         st.success("✅ 方案已更新！")
                     except Exception as e:
                         st.error(f"❌ 微调失败: {e}")
+                    finally:
+                        st.session_state.refine_in_progress = False
+                        st.rerun()
 
 
 # =========================================================================
@@ -1573,28 +1604,33 @@ with main_tab2:
         guide_query = st.text_input("请输入查询条件：", placeholder="例如：1.8米皮床，推荐适配厚度22-25cm的独立弹簧护脊床垫，总预算7000内", key="guide_query_input")
     with col_q2:
         st.write(" "); st.write(" ")
-        search_btn = st.button("🔎 立即检索库", type="primary", use_container_width=True)
+        search_btn = st.button("🔎 立即检索库", type="primary", use_container_width=True, disabled=st.session_state.guide_query_in_progress)
 
     st.caption("💡 高频快捷检索：")
     col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-    if col_e1.button("📌 1.8米床 + 适配床垫组合"):
+    if col_e1.button("📌 1.8米床 + 适配床垫组合", disabled=st.session_state.guide_query_in_progress):
         guide_query = "1.8米主卧软体床，推荐匹配高度适中的护脊床垫，一套预算8000以内"
         search_btn = True
-    if col_e2.button("📌 青少年防弯曲护脊床垫"):
+    if col_e2.button("📌 青少年防弯曲护脊床垫", disabled=st.session_state.guide_query_in_progress):
         guide_query = "适合青少年或儿童的1.5米护脊床垫，透气环保硬质支撑"
         search_btn = True
-    if col_e3.button("📌 3米左右 1万内 意式沙发"):
+    if col_e3.button("📌 3米左右 1万内 意式沙发", disabled=st.session_state.guide_query_in_progress):
         guide_query = "尺寸3米左右，价格10000以内，意式风格真皮或科技布沙发"
         search_btn = True
-    if col_e4.button("📌 独立弹簧零干扰静音床垫"):
+    if col_e4.button("📌 独立弹簧零干扰静音床垫", disabled=st.session_state.guide_query_in_progress):
         guide_query = "主卧独立袋装弹簧床垫，抗干扰抗震动，适合浅睡眠人群"
         search_btn = True
 
     st.markdown("---")
 
     if search_btn and guide_query:
+        if st.session_state.guide_query_in_progress:
+            st.info("⏳ 正在检索中，请耐心等待...")
+            st.stop()
+        st.session_state.guide_query_in_progress = True
         if not api_key.startswith("sk-"):
             st.error("❌ 请先配置 DeepSeek API Key")
+            st.session_state.guide_query_in_progress = False
             st.stop()
 
         # 记录导购查询
@@ -1715,3 +1751,5 @@ with main_tab2:
                     st.info("💡 提示：未能匹配到图片。")
             except Exception as e:
                 st.error(f"❌ 检索失败: {e}")
+            finally:
+                st.session_state.guide_query_in_progress = False
