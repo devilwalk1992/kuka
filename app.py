@@ -200,35 +200,43 @@ def _parse_md_product(filepath, rel_path):
     value_match = re.search(r'### 一句话价值塑造\s*\n+\s*(.+?)(?:\n|$)', text)
     tagline = value_match.group(1).strip() if value_match else ""
 
-    # 配色 & 色号
+# 配色 & 色号 & 材质
     colors = []
     color_codes = []
-    in_color = False
-    for line in text.split("\n"):
-        if "配色与材质" in line:
-            in_color = True
-            continue
-        if in_color and line.strip().startswith("|") and not line.strip().startswith("|--"):
-            parts = [p.strip() for p in line.split("|") if p.strip()]
-            if len(parts) >= 2:
-                colors.append(parts[1])
+    # 从「配色与材质」表提取（沙发等产品有）：色号 | 颜色名称 | 材质
+    color_table = re.search(r'### 配色与材质\s*\n\|.+\n(\|.+\n?)+', text)
+    if color_table:
+        for line in color_table.group(0).split('\n'):
+            parts = [p.strip() for p in line.split('|') if p.strip()]
+            if len(parts) >= 2 and not re.search(r'色号|颜色名称|材质|型号', ''.join(parts[:2])):
+                # 跳过分隔线（如 |------|---------|------|）
+                if any(p.replace('-','').strip() == '' for p in parts):
+                    continue
+                color_name = parts[1] if len(parts) >= 2 else ""
+                material = parts[2] if len(parts) >= 3 else ""
+                if color_name and color_name not in colors:
+                    entry = f"{color_name}({material})" if material else color_name
+                    colors.append(entry)
                 if len(parts) >= 1:
                     color_codes.append(parts[0])
-
-    # 床架：从 "### 配色型号" 行提取颜色名称和色号
-    if not colors:
-        for line in text.split("\n"):
-            if "配色型号" in line:
-                # 格式: "### 配色型号: T250133/F250133 明月灰（出样色）"
-                m = re.search(r'配色型号:\s*(\S+)\s+(\S+)', line)
-                if m:
-                    code = m.group(1).strip()  # "T250133/F250133"
-                    cname = m.group(2).strip()
-                    # 去除（出样色）（次配色）等后缀
-                    cname = re.sub(r'[（(][^）)]*[）)]', '', cname).strip()
-                    if cname:
-                        colors.append(cname)
-                        color_codes.append(code)
+    # 从「配色型号:」标题提取（床类产品有）：### 配色型号: U652245/F652245-X 午夜咖啡（出样色）
+    for line in text.split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('### 配色型号:'):
+            # 提取配色型号后面的颜色名称
+            color_part = stripped.split('### 配色型号:')[1].strip()
+            # 去掉色号部分（如 "U652245/F652245-X 午夜咖啡（出样色）"）
+            name_match = re.search(r'(?:[A-Za-z0-9/_-]+)\s+(\S[^（(]*)', color_part)
+            if name_match:
+                color_name = name_match.group(1).strip()
+                if color_name and color_name not in colors:
+                    colors.append(color_name)
+            # 提取色号
+            code_match = re.search(r'### 配色型号:\s*([A-Za-z0-9_/-]+)', line)
+            if code_match:
+                code = code_match.group(1).strip()
+                if code and code not in color_codes:
+                    color_codes.append(code)
 
     # 色调分类
     color_tone = _classify_color_tone(colors)
@@ -384,7 +392,7 @@ def _parse_md_product(filepath, rel_path):
         "series": series,
         "tagline": tagline[:80],
         "features": features[:3],
-        "colors": colors[:3],
+"colors": colors,
         "color_codes": color_codes[:3],
         "color_tone": color_tone,
         "min_price": min_price,
@@ -602,7 +610,11 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
         if p.get("specs"):
             line += f" | 规格: {', '.join(p['specs'][:3])}"
         if p.get("colors"):
-            line += f" | 配色: {'/'.join(p['colors'][:2])}"
+            colors_show = p["colors"]
+            if any('(' in c or '（' in c for c in colors_show):
+                line += f" | 颜色: {'/'.join(colors_show[:5])}"
+            else:
+                line += f" | 配色: {'/'.join(colors_show[:5])}"
         if p.get("color_tone"):
             line += f" | 色调: {p['color_tone']}"
         if p.get("color_codes"):
