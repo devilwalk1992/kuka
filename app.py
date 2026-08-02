@@ -3,6 +3,7 @@ import json
 import re
 import io
 import base64
+import time
 from datetime import datetime
 import streamlit as st
 from fpdf import FPDF
@@ -1407,6 +1408,7 @@ with main_tab1:
             st.rerun()
 
         if st.session_state.query_in_progress:
+            t_start = time.time()
             # 记录全屋搭配查询
             _log_query("full_plan", {
                 "style": style_pref, "room_width": room_width, "sofa_wall_len": sofa_wall_len,
@@ -1572,8 +1574,20 @@ with main_tab1:
 {chr(10).join(f'  · {bd["room_name"]}: {bd["bed_spec"]}, 床垫需求: {bd["mat_pref"]}' for bd in bedroom_configs) if bedroom_configs else '  无卧室配置'}
 """
 
+            # 记录候选产品筛选耗时
+            t_after_filter = time.time()
+
             try:
-                full_response = st.write_stream(stream_response(api_key, model_name, system_prompt, user_prompt))
+                with st.status("🤖 AI 正在生成方案...", expanded=True) as status:
+                    t_llm_start = time.time()
+                    full_response = st.write_stream(stream_response(api_key, model_name, system_prompt, user_prompt))
+                    t_llm_end = time.time()
+                    filter_time = t_after_filter - t_start
+                    llm_time = t_llm_end - t_llm_start
+                    startup_time = t_after_filter - t_start
+                    total_time = t_llm_end - t_start
+                    status.update(label=f"✅ 方案生成完成（筛选 {startup_time:.1f}s + LLM {llm_time:.1f}s = 总计 {total_time:.1f}s）", state="complete")
+                    st.caption(f"⏱️ 耗时明细：产品筛选 {filter_time:.1f}s → LLM 流式输出 {llm_time:.1f}s → 总耗时 {total_time:.1f}s")
                 # 保存当前报告到 session_state，供后续微调使用
                 st.session_state.current_report = full_response
                 # 记录历史版本
