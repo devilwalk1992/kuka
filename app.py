@@ -746,41 +746,46 @@ def _get_product_image(model, images_db):
     return None
 
 
-def _generate_quote_html():
-    """根据当前 session_state 中的候选产品数据，生成报价单 HTML 字符串"""
-    form = st.session_state.get("quote_form_data", {})
-    candidates = st.session_state.get("quote_candidates", {})
-    report = st.session_state.get("current_report", "")
+def _extract_recommended_models(report):
+    """从 AI 报告文本中提取推荐的产品型号"""
+    matched = set()
+    for m in re.findall(r'[A-Za-z0-9.\-]+', report):
+        m = m.strip().upper()
+        # 模型号通常包含字母数字，长度 >= 4，且包含字母
+        if len(m) >= 4 and re.search(r'[A-Z]', m):
+            matched.add(m)
+    return matched
 
-    # 从候选产品构建产品列表
+
+def _get_recommended_products(candidates, report, images_db):
+    """从候选产品中筛选出 AI 报告中推荐的产品"""
+    recommended_models = _extract_recommended_models(report)
     products = []
     seen_models = set()
     for cat_name, cat_products in candidates.items():
         for p in cat_products:
-            model = p.get("model", "")
+            model = p.get("model", "").upper()
             if model in seen_models:
                 continue
             seen_models.add(model)
-            # 取价格：优先从 price_rows 提取第一个价格，否则用 min_price
+            # 只保留在 AI 推荐列表中出现的型号
+            if model not in recommended_models:
+                continue
             first_price = p.get("min_price", 0)
             price_rows = p.get("price_rows", [])
             if price_rows:
                 m = re.search(r'[¥￥]\s*([\d,]+)', price_rows[0])
                 if m:
                     first_price = int(m.group(1).replace(",", ""))
-            # 取规格摘要
             specs = p.get("specs", [])
             spec_str = " / ".join(specs[:3]) if specs else ""
-            # 取组件尺寸
             comps = p.get("sofa_components", {})
             comp_str = "、".join(f"{k}={v}cm" for k, v in list(comps.items())[:4]) if comps else ""
-            # 取颜色
             colors = p.get("colors", [])
             color_str = "、".join(colors[:3]) if colors else ""
-            # 取图片
             img_path = _get_product_image(model, images_db)
             products.append({
-                "model": model,
+                "model": p.get("model", ""),
                 "name": p.get("name", ""),
                 "series": p.get("series", ""),
                 "category": cat_name,
@@ -792,6 +797,51 @@ def _generate_quote_html():
                 "features": p.get("features", [])[:2],
                 "img_path": img_path,
             })
+    # 如果 AI 报告中没提取到任何型号，回退：返回所有候选产品
+    if not products:
+        for cat_name, cat_products in candidates.items():
+            for p in cat_products:
+                model = p.get("model", "")
+                if model in seen_models:
+                    continue
+                seen_models.add(model)
+                first_price = p.get("min_price", 0)
+                price_rows = p.get("price_rows", [])
+                if price_rows:
+                    m = re.search(r'[¥￥]\s*([\d,]+)', price_rows[0])
+                    if m:
+                        first_price = int(m.group(1).replace(",", ""))
+                specs = p.get("specs", [])
+                spec_str = " / ".join(specs[:3]) if specs else ""
+                comps = p.get("sofa_components", {})
+                comp_str = "、".join(f"{k}={v}cm" for k, v in list(comps.items())[:4]) if comps else ""
+                colors = p.get("colors", [])
+                color_str = "、".join(colors[:3]) if colors else ""
+                img_path = _get_product_image(model, images_db)
+                products.append({
+                    "model": p.get("model", ""),
+                    "name": p.get("name", ""),
+                    "series": p.get("series", ""),
+                    "category": cat_name,
+                    "price": first_price,
+                    "specs": spec_str,
+                    "components": comp_str,
+                    "colors": color_str,
+                    "material": p.get("material", ""),
+                    "features": p.get("features", [])[:2],
+                    "img_path": img_path,
+                })
+    return products
+
+
+def _generate_quote_html():
+    """根据当前 session_state 中的候选产品数据，生成报价单 HTML 字符串"""
+    form = st.session_state.get("quote_form_data", {})
+    candidates = st.session_state.get("quote_candidates", {})
+    report = st.session_state.get("current_report", "")
+
+    # 从 AI 报告中提取推荐产品
+    products = _get_recommended_products(candidates, report, images_db)
 
     total_price = sum(p["price"] for p in products)
     now = datetime.now()
@@ -1018,31 +1068,18 @@ def _generate_quote_pdf():
     if not os.path.exists(cjk_font_path):
         cjk_font_path = None
 
-    # 从候选产品构建产品列表
+    # 从 AI 报告中提取推荐产品
+    recommended_products = _get_recommended_products(candidates, report, images_db)
     products = []
-    seen_models = set()
-    for cat_name, cat_products in candidates.items():
-        for p in cat_products:
-            model = p.get("model", "")
-            if model in seen_models:
-                continue
-            seen_models.add(model)
-            first_price = p.get("min_price", 0)
-            price_rows = p.get("price_rows", [])
-            if price_rows:
-                m = re.search(r'[¥￥]\s*([\d,]+)', price_rows[0])
-                if m:
-                    first_price = int(m.group(1).replace(",", ""))
-            specs = p.get("specs", [])
-            spec_str = " / ".join(specs[:3]) if specs else ""
-            products.append({
-                "model": model,
-                "name": p.get("name", ""),
-                "series": p.get("series", ""),
-                "category": cat_name,
-                "price": first_price,
-                "specs": spec_str,
-            })
+    for p in recommended_products:
+        products.append({
+            "model": p["model"],
+            "name": p["name"],
+            "series": p["series"],
+            "category": p["category"],
+            "price": p["price"],
+            "specs": p["specs"],
+        })
 
     total_price = sum(p["price"] for p in products)
     now = datetime.now()
@@ -1066,8 +1103,6 @@ def _generate_quote_pdf():
     class QuotePDF(FPDF):
         def header(self):
             if cjk_font_path:
-                self.add_font("CJK", "", cjk_font_path)
-                self.add_font("CJK", "B", cjk_font_path)
                 self.set_font("CJK", "B", 16)
             else:
                 self.set_font("Helvetica", "B", 16)
@@ -1092,14 +1127,13 @@ def _generate_quote_pdf():
             self.cell(0, 10, f"\u7b2c {self.page_no()} \u9875 / \u5171 {{nb}} \u9875", align="C")
 
     pdf = QuotePDF()
+    # 注册 CJK 字体（必须在 add_page 之前，否则 header() 中无法使用）
+    if cjk_font_path:
+        pdf.add_font("CJK", "", cjk_font_path, subfont=0)
+        pdf.add_font("CJK", "B", cjk_font_path, subfont=0)
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
-
-    # 注册 CJK 字体用于正文
-    if cjk_font_path:
-        pdf.add_font("CJK", "", cjk_font_path)
-        pdf.add_font("CJK", "B", cjk_font_path)
 
     def cjk(text, bold=False, size=9):
         """使用 CJK 字体或 Helvetica 书写中文"""
