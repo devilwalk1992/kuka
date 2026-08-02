@@ -363,35 +363,38 @@ def _parse_md_product(filepath, rel_path):
                 if parts:
                     all_spec_names.append(parts[0])
 
-    # 床头高度（床架专用）：从床架外尺寸(总长×总宽×头高)中提取
-    # 如 "228×166×115" → 头高 115cm
-    bed_head_height = 0
+    # 床架外尺寸（床架专用）：从床架外尺寸(总长×总宽×头高)中提取
+    # 如 "224×165×109" → 总长224cm, 床头尺寸(总宽)165cm, 床头高度(头高)109cm
+    bed_total_length = 0   # 总长（床的长度）
+    bed_head_width = 0     # 床头尺寸/总宽
+    bed_head_height = 0    # 床头高度/头高
     if category == "床架":
-        head_heights = []
+        dims_list = []
         for line in text.split('\n'):
             if '×' not in line and 'x' not in line.lower():
                 continue
             stripped = line.strip()
             if not stripped.startswith('|'):
-                # 非表格行只匹配包含"床架外尺寸"或"外尺寸"关键词的行
                 if '床架外尺寸' not in stripped and '外尺寸' not in stripped and '头高' not in stripped:
                     continue
                 nums = re.findall(r'(\d+)\s*[×x]\s*(\d+)\s*[×x]\s*(\d+)', line.lower())
                 for n in nums:
-                    head_heights.append(int(n[2]))
+                    dims_list.append((int(n[0]), int(n[1]), int(n[2])))
                 continue
             parts = [p.strip() for p in stripped.split('|') if p.strip()]
             if len(parts) < 2:
                 continue
-            # 匹配尺寸列（第二列）中的 "数字×数字×数字" 格式
             size_col = parts[1]
             nums = re.findall(r'(\d+)\s*[×x]\s*(\d+)\s*[×x]\s*(\d+)', size_col.lower())
             for n in nums:
-                v = int(n[2])
-                if 50 <= v <= 200:  # 头高合理范围
-                    head_heights.append(v)
-        if head_heights:
-            bed_head_height = head_heights[0]
+                l, w, h = int(n[0]), int(n[1]), int(n[2])
+                if 50 <= h <= 200:  # 头高合理范围
+                    dims_list.append((l, w, h))
+        if dims_list:
+            # 取第一个完整数据行
+            bed_total_length = dims_list[0][0]
+            bed_head_width = dims_list[0][1]
+            bed_head_height = dims_list[0][2]
 
     # 材质（床垫/配套通用）：如 "Sanitized®抑菌防螨面料+乳胶+平衡支撑绵+六环精钢连锁簧+护边系统"
     material = ""
@@ -433,6 +436,8 @@ def _parse_md_product(filepath, rel_path):
         "sofa_components": sofa_components,
         "all_spec_names": all_spec_names,
         "bed_head_height": bed_head_height,
+        "bed_total_length": bed_total_length,
+        "bed_head_width": bed_head_width,
         "material": material,
         "product_config": product_config,
         "headboard_type": headboard_type,
@@ -440,7 +445,7 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v10_headboard_type"):
+def build_product_index_v3(_version="v11_bed_dims"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
@@ -603,6 +608,7 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
                     f"{p.get('mattress_thickness','')} "
                     f"{p.get('material','')} {p.get('product_config','')} "
                     f"{p.get('headboard_type','')} "
+                    f"总长{p.get('bed_total_length',0)}cm 总宽{p.get('bed_head_width',0)}cm 头高{p.get('bed_head_height',0)}cm "
                     f"{p.get('color_tone','')} "
                 ).lower()
                 # 1) 直接子串匹配
@@ -657,6 +663,10 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
             line += f"\n    材质: {p['material']}"
         if p.get("bed_head_height") and p["bed_head_height"] > 0:
             line += f" | 床头高度: {p['bed_head_height']}cm"
+        if p.get("bed_total_length") and p["bed_total_length"] > 0:
+            line += f" | 床总长: {p['bed_total_length']}cm"
+        if p.get("bed_head_width") and p["bed_head_width"] > 0:
+            line += f" | 床头尺寸(总宽): {p['bed_head_width']}cm"
         if p.get("tagline"):
             line += f" | 卖点: {p['tagline']}"
         if p.get("design_style"):
