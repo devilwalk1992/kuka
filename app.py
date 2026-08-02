@@ -734,30 +734,65 @@ def _img_to_base64(img_path):
         return ""
 
 
+def _get_product_image(model, images_db):
+    """根据产品型号查找对应的 catalog 图片"""
+    model_upper = model.upper()
+    for folder_key, img_dict in images_db.items():
+        if model_upper in folder_key.upper():
+            imgs = img_dict.get("catalog_images", []) or img_dict.get("scene_images", [])
+            if imgs:
+                return imgs[0]
+    return None
+
+
 def _generate_quote_html():
-    """根据当前 session_state 中的报告和表单数据，生成报价单 HTML 字符串"""
+    """根据当前 session_state 中的候选产品数据，生成报价单 HTML 字符串"""
     form = st.session_state.get("quote_form_data", {})
+    candidates = st.session_state.get("quote_candidates", {})
     report = st.session_state.get("current_report", "")
 
-    # 提取产品信息（从报告文本中用正则提取型号和价格）
+    # 从候选产品构建产品列表
     products = []
-    # 匹配 "KUKA 0033" 或 "JD.0036" 等产品型号后面跟价格 ¥12,800 的模式
-    price_patterns = re.findall(r'([A-Za-z0-9.]+(?:[-\s][A-Za-z0-9\u4e00-\u9fff]+)?)\s*[:：]?\s*[^¥￥]*?[¥￥]\s*([\d,]+)', report)
-    seen = set()
-    for name, price_str in price_patterns:
-        key = name.strip()[:20]
-        if key not in seen:
-            seen.add(key)
-            price = int(price_str.replace(",", ""))
-            products.append({"name": name.strip(), "price": price, "qty": 1})
+    seen_models = set()
+    for cat_name, cat_products in candidates.items():
+        for p in cat_products:
+            model = p.get("model", "")
+            if model in seen_models:
+                continue
+            seen_models.add(model)
+            # 取价格：优先从 price_rows 提取第一个价格，否则用 min_price
+            first_price = p.get("min_price", 0)
+            price_rows = p.get("price_rows", [])
+            if price_rows:
+                m = re.search(r'[¥￥]\s*([\d,]+)', price_rows[0])
+                if m:
+                    first_price = int(m.group(1).replace(",", ""))
+            # 取规格摘要
+            specs = p.get("specs", [])
+            spec_str = " / ".join(specs[:3]) if specs else ""
+            # 取组件尺寸
+            comps = p.get("sofa_components", {})
+            comp_str = "、".join(f"{k}={v}cm" for k, v in list(comps.items())[:4]) if comps else ""
+            # 取颜色
+            colors = p.get("colors", [])
+            color_str = "、".join(colors[:3]) if colors else ""
+            # 取图片
+            img_path = _get_product_image(model, images_db)
+            products.append({
+                "model": model,
+                "name": p.get("name", ""),
+                "series": p.get("series", ""),
+                "category": cat_name,
+                "price": first_price,
+                "specs": spec_str,
+                "components": comp_str,
+                "colors": color_str,
+                "material": p.get("material", ""),
+                "features": p.get("features", [])[:2],
+                "img_path": img_path,
+            })
 
-    # 如果没提取到，回退：从报告中找所有 ¥ 价格
-    if not products:
-        all_prices = re.findall(r'[¥￥]\s*([\d,]+)', report)
-        for i, p in enumerate(all_prices[:10]):
-            products.append({"name": f"产品 {i+1}", "price": int(p.replace(",", "")), "qty": 1})
-
-    total_price = sum(p["price"] * p["qty"] for p in products)
+    total_price = sum(p["price"] for p in products)
     now = datetime.now()
     doc_no = f"QU{now.strftime('%Y%m%d%H%M%S')}"
 
@@ -770,9 +805,8 @@ def _generate_quote_html():
     bedroom_detail = form.get("bedroom_detail", "")
     notes = form.get("notes", "")
 
-    # 提取设计理念段落（取报告前 500 字作为设计理念）
+    # 提取设计理念段落
     concept_text = report[:800].strip() if report else "根据客户需求与空间尺寸分析，为您量身定制全屋软装搭配方案。"
-    # 清理 Markdown 标记
     concept_text = re.sub(r'#{1,6}\s*', '', concept_text)
     concept_text = re.sub(r'\*\*(.*?)\*\*', r'\1', concept_text)
     concept_text = concept_text[:600]
@@ -780,13 +814,40 @@ def _generate_quote_html():
     # 生成产品表格行
     product_rows = ""
     for i, p in enumerate(products, 1):
+        img_html = ""
+        if p["img_path"]:
+            b64 = _img_to_base64(p["img_path"])
+            if b64:
+                img_html = f'<img src="{b64}" style="width:60px;height:60px;object-fit:cover;border-radius:4px;" alt="{p["model"]}">'
+            else:
+                img_html = '<div class="img-placeholder">📦</div>'
+        else:
+            img_html = '<div class="img-placeholder">📦</div>'
+
+        # 规格详细信息
+        spec_detail = ""
+        if p["specs"]:
+            spec_detail += f'<span style="color:#64748b;">规格：{p["specs"]}</span><br>'
+        if p["components"]:
+            spec_detail += f'<span style="color:#64748b;">组件：{p["components"]}</span><br>'
+        if p["colors"]:
+            spec_detail += f'<span style="color:#64748b;">颜色：{p["colors"]}</span>'
+        if p["features"]:
+            feat_str = "；".join(p["features"])
+            spec_detail = f'<span style="color:#64748b;">卖点：{feat_str}</span><br>' + spec_detail
+
         product_rows += f"""
         <tr>
             <td style="text-align: center;">{i}</td>
-            <td style="text-align: center;"><div class="img-placeholder">📦</div></td>
-            <td><strong>{p['name']}</strong><br><span style="color: #2563eb; font-size: 10px;">KUKA 全屋定制系列</span></td>
-            <td style="text-align: center;">{p['qty']}</td>
-            <td style="text-align: right; font-weight: bold;">¥{p['price']:,}</td>
+            <td style="text-align: center;">{img_html}</td>
+            <td>
+                <strong style="color:#0f172a;">{p['model']}</strong>
+                <span style="color:#2563eb;font-size:10px;margin-left:4px;">{p['name']}</span>
+                <br><span style="color:#94a3b8;font-size:10px;">{p['series']} · {p['category']}</span>
+                <br>{spec_detail}
+            </td>
+            <td style="text-align: center;">1</td>
+            <td style="text-align: right; font-weight: bold; color:#dc2626;">¥{p['price']:,}</td>
         </tr>"""
 
     # 卧室信息行
@@ -859,7 +920,7 @@ def _generate_quote_html():
     tr {{ page-break-inside: avoid; }}
     thead {{ display: table-header-group; }}
     .img-placeholder {{
-        width: 50px; height: 50px; background: #f1f5f9; border-radius: 4px;
+        width: 60px; height: 60px; background: #f1f5f9; border-radius: 4px;
         display: flex; align-items: center; justify-content: center;
         margin: 0 auto; font-size: 24px;
     }}
@@ -883,7 +944,7 @@ def _generate_quote_html():
 </head>
 <body>
     <div class="header-box">
-        <div class="brand-name">🛋️ KUKA HOME 软装定制</div>
+        <div class="brand-name">KUKA HOME 软装定制</div>
         <div class="doc-type">全屋搭配设计方案 & 报价单<br><small>单号：{doc_no}</small></div>
     </div>
 
@@ -902,18 +963,18 @@ def _generate_quote_html():
     </div>
 
     <div class="concept-box">
-        <div class="concept-title">💡 空间搭配与设计理念</div>
+        <div class="concept-title">空间搭配与设计理念</div>
         <p>{concept_text}</p>
     </div>
 
     <table class="quote-table">
         <thead>
             <tr>
-                <th style="width: 8%;">序号</th>
+                <th style="width: 6%;">序号</th>
                 <th style="width: 12%;">产品图片</th>
-                <th style="width: 50%;">产品名称 / 规格 / 卖点</th>
-                <th style="width: 10%;">数量</th>
-                <th style="width: 20%;">成交价</th>
+                <th style="width: 52%;">产品名称 / 型号 / 规格 / 颜色</th>
+                <th style="width: 8%;">数量</th>
+                <th style="width: 22%;">成交价</th>
             </tr>
         </thead>
         <tbody>
@@ -946,24 +1007,43 @@ def _generate_quote_html():
 def _generate_quote_pdf():
     """使用 fpdf2 生成报价单 PDF 并返回 bytes"""
     form = st.session_state.get("quote_form_data", {})
+    candidates = st.session_state.get("quote_candidates", {})
     report = st.session_state.get("current_report", "")
 
-    # 提取产品信息
-    products = []
-    price_patterns = re.findall(r'([A-Za-z0-9.]+(?:[-\s][A-Za-z0-9\u4e00-\u9fff]+)?)\s*[:：]?\s*[^¥￥]*?[¥￥]\s*([\d,]+)', report)
-    seen = set()
-    for name, price_str in price_patterns:
-        key = name.strip()[:20]
-        if key not in seen:
-            seen.add(key)
-            price = int(price_str.replace(",", ""))
-            products.append({"name": name.strip(), "price": price, "qty": 1})
-    if not products:
-        all_prices = re.findall(r'[¥￥]\s*([\d,]+)', report)
-        for i, p in enumerate(all_prices[:10]):
-            products.append({"name": f"产品 {i+1}", "price": int(p.replace(",", "")), "qty": 1})
+    # 注册中文字体
+    cjk_font_path = "C:/Windows/Fonts/msyh.ttc"
+    if not os.path.exists(cjk_font_path):
+        cjk_font_path = "C:/Windows/Fonts/simsun.ttc"
+    if not os.path.exists(cjk_font_path):
+        cjk_font_path = None
 
-    total_price = sum(p["price"] * p["qty"] for p in products)
+    # 从候选产品构建产品列表
+    products = []
+    seen_models = set()
+    for cat_name, cat_products in candidates.items():
+        for p in cat_products:
+            model = p.get("model", "")
+            if model in seen_models:
+                continue
+            seen_models.add(model)
+            first_price = p.get("min_price", 0)
+            price_rows = p.get("price_rows", [])
+            if price_rows:
+                m = re.search(r'[¥￥]\s*([\d,]+)', price_rows[0])
+                if m:
+                    first_price = int(m.group(1).replace(",", ""))
+            specs = p.get("specs", [])
+            spec_str = " / ".join(specs[:3]) if specs else ""
+            products.append({
+                "model": model,
+                "name": p.get("name", ""),
+                "series": p.get("series", ""),
+                "category": cat_name,
+                "price": first_price,
+                "specs": spec_str,
+            })
+
+    total_price = sum(p["price"] for p in products)
     now = datetime.now()
     doc_no = f"QU{now.strftime('%Y%m%d%H%M%S')}"
 
@@ -976,7 +1056,6 @@ def _generate_quote_pdf():
     bedroom_detail = form.get("bedroom_detail", "")
     notes = form.get("notes", "")
 
-    # 提取设计理念
     concept_text = report[:600].strip() if report else "根据客户需求与空间尺寸分析，为您量身定制全屋软装搭配方案。"
     concept_text = re.sub(r'#{1,6}\s*', '', concept_text)
     concept_text = re.sub(r'\*\*(.*?)\*\*', r'\1', concept_text)
@@ -985,39 +1064,49 @@ def _generate_quote_pdf():
     # 创建 PDF
     class QuotePDF(FPDF):
         def header(self):
-            self.set_font("Helvetica", "B", 16)
+            if cjk_font_path:
+                self.add_font("CJK", "", cjk_font_path)
+                self.add_font("CJK", "B", cjk_font_path)
+                self.set_font("CJK", "B", 16)
+            else:
+                self.set_font("Helvetica", "B", 16)
             self.set_text_color(37, 99, 235)
-            self.cell(0, 10, "KUKA HOME  -  ", new_x="LMARGIN", new_y="NEXT")
-            self.set_font("Helvetica", "", 8)
+            self.cell(0, 10, "KUKA HOME  \u8f6f\u88c5\u5b9a\u5236\u62a5\u4ef7\u5355", new_x="LMARGIN", new_y="NEXT")
+            if cjk_font_path:
+                self.set_font("CJK", "", 8)
+            else:
+                self.set_font("Helvetica", "", 8)
             self.set_text_color(100, 116, 139)
-            self.cell(0, 5, f"          报价单号: {doc_no}", new_x="LMARGIN", new_y="NEXT")
+            self.cell(0, 5, f"\u5355\u53f7: {doc_no}", new_x="LMARGIN", new_y="NEXT")
             self.line(10, self.get_y() + 1, 200, self.get_y() + 1)
             self.ln(8)
 
         def footer(self):
             self.set_y(-15)
-            self.set_font("Helvetica", "", 8)
+            if cjk_font_path:
+                self.set_font("CJK", "", 8)
+            else:
+                self.set_font("Helvetica", "", 8)
             self.set_text_color(148, 163, 184)
-            self.cell(0, 10, f"第 {self.page_no()} 页 / 共 {{nb}} 页", align="C")
-
-        def section_title(self, title):
-            self.set_font("Helvetica", "B", 12)
-            self.set_text_color(30, 41, 59)
-            self.cell(0, 8, title, new_x="LMARGIN", new_y="NEXT")
-            self.ln(2)
-
-        def meta_row(self, label, value):
-            self.set_font("Helvetica", "", 9)
-            self.set_text_color(100, 116, 139)
-            self.cell(30, 5, label, new_x="LMARGIN", new_y="NEXT")
-            self.set_font("Helvetica", "", 9)
-            self.set_text_color(30, 41, 59)
-            self.cell(0, 5, value, new_x="LMARGIN", new_y="NEXT")
+            self.cell(0, 10, f"\u7b2c {self.page_no()} \u9875 / \u5171 {{nb}} \u9875", align="C")
 
     pdf = QuotePDF()
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
+
+    # 注册 CJK 字体用于正文
+    if cjk_font_path:
+        pdf.add_font("CJK", "", cjk_font_path)
+        pdf.add_font("CJK", "B", cjk_font_path)
+
+    def cjk(text, bold=False, size=9):
+        """使用 CJK 字体或 Helvetica 书写中文"""
+        if cjk_font_path:
+            pdf.set_font("CJK", "B" if bold else "", size)
+        else:
+            pdf.set_font("Helvetica", "B" if bold else "", size)
+        pdf.set_text_color(30, 41, 59)
 
     # --- 客户信息区 ---
     pdf.set_fill_color(248, 250, 252)
@@ -1025,67 +1114,67 @@ def _generate_quote_pdf():
     pdf.rect(10, pdf.get_y(), 190, 28, style="DF")
     y_start = pdf.get_y() + 3
     pdf.set_xy(14, y_start)
-    pdf.set_font("Helvetica", "", 9)
+    cjk(size=9)
     pdf.set_text_color(100, 116, 139)
-    pdf.cell(25, 5, "装修风格:", new_x="END")
+    pdf.cell(25, 5, "\u88c5\u4fee\u98ce\u683c:", new_x="END")
     pdf.set_text_color(30, 41, 59)
     pdf.cell(50, 5, style, new_x="END")
     pdf.set_text_color(100, 116, 139)
-    pdf.cell(25, 5, "墙面颜色:", new_x="END")
+    pdf.cell(25, 5, "\u5899\u9762\u989c\u8272:", new_x="END")
     pdf.set_text_color(30, 41, 59)
     pdf.cell(50, 5, wall_color, new_x="END")
     pdf.set_text_color(100, 116, 139)
-    pdf.cell(25, 5, "地面材质:", new_x="END")
+    pdf.cell(25, 5, "\u5730\u9762\u6750\u8d28:", new_x="END")
     pdf.set_text_color(30, 41, 59)
     pdf.cell(0, 5, floor_color, new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_x(14)
     pdf.set_text_color(100, 116, 139)
-    pdf.cell(25, 5, "空间尺寸:", new_x="END")
+    pdf.cell(25, 5, "\u7a7a\u95f4\u5c3a\u5bf8:", new_x="END")
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(50, 5, f"客厅开间 {room_width}米 / 背景墙 {sofa_wall_len}米", new_x="END")
+    pdf.cell(50, 5, f"\u5ba2\u5385\u5f00\u95f4 {room_width}\u7c73 / \u80cc\u666f\u5899 {sofa_wall_len}\u7c73", new_x="END")
     pdf.set_text_color(100, 116, 139)
-    pdf.cell(25, 5, "预算区间:", new_x="END")
+    pdf.cell(25, 5, "\u9884\u7b97\u533a\u95f4:", new_x="END")
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(0, 5, f"¥{budget:,} 元", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 5, f"\u00a5{budget:,} \u5143", new_x="LMARGIN", new_y="NEXT")
 
     if bedroom_detail:
         pdf.set_x(14)
         pdf.set_text_color(100, 116, 139)
-        pdf.cell(25, 5, "卧室配置:", new_x="END")
+        pdf.cell(25, 5, "\u5367\u5ba4\u914d\u7f6e:", new_x="END")
         pdf.set_text_color(30, 41, 59)
         pdf.cell(0, 5, bedroom_detail[:80], new_x="LMARGIN", new_y="NEXT")
     if notes:
         pdf.set_x(14)
         pdf.set_text_color(100, 116, 139)
-        pdf.cell(25, 5, "备注:", new_x="END")
+        pdf.cell(25, 5, "\u5907\u6ce8:", new_x="END")
         pdf.set_text_color(30, 41, 59)
         pdf.cell(0, 5, notes[:80], new_x="LMARGIN", new_y="NEXT")
 
     pdf.ln(12)
 
     # --- 设计理念 ---
-    pdf.set_font("Helvetica", "B", 11)
+    cjk(bold=True, size=11)
     pdf.set_text_color(15, 23, 42)
-    pdf.cell(0, 7, "Design Concept  -  ", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 7, "\u7a7a\u95f4\u642d\u914d\u4e0e\u8bbe\u8ba1\u7406\u5ff5", new_x="LMARGIN", new_y="NEXT")
     pdf.set_draw_color(37, 99, 235)
     pdf.line(10, pdf.get_y(), 12, pdf.get_y())
     pdf.ln(2)
-    pdf.set_font("Helvetica", "", 9)
+    cjk(size=9)
     pdf.set_text_color(51, 65, 85)
     pdf.multi_cell(0, 5, concept_text)
     pdf.ln(8)
 
     # --- 产品报价表 ---
-    pdf.set_font("Helvetica", "B", 11)
+    cjk(bold=True, size=11)
     pdf.set_text_color(15, 23, 42)
-    pdf.cell(0, 7, "Quotation Details  -  ", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 7, "\u4ea7\u54c1\u62a5\u4ef7\u660e\u7ec6", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
 
     # 表头
-    col_w = [12, 68, 22, 20, 28]  # 序号, 产品名称, 数量, 单价, 小计
-    headers = ["#", "Product / Specification", "Qty", "Unit Price", "Subtotal"]
-    pdf.set_font("Helvetica", "B", 8)
+    col_w = [10, 50, 24, 22, 24]  # 序号, 产品名称/型号/规格, 数量, 单价, 小计
+    headers = ["#", "\u4ea7\u54c1\u540d\u79f0 / \u578b\u53f7 / \u89c4\u683c", "\u6570\u91cf", "\u5355\u4ef7", "\u5c0f\u8ba1"]
+    cjk(bold=True, size=8)
     pdf.set_fill_color(37, 99, 235)
     pdf.set_text_color(255, 255, 255)
     for i, h in enumerate(headers):
@@ -1093,19 +1182,19 @@ def _generate_quote_pdf():
     pdf.ln()
 
     # 数据行
-    pdf.set_font("Helvetica", "", 8)
+    cjk(size=8)
     fill = False
     for i, p in enumerate(products, 1):
         if pdf.get_y() > 260:
             pdf.add_page()
             # 重复表头
-            pdf.set_font("Helvetica", "B", 8)
+            cjk(bold=True, size=8)
             pdf.set_fill_color(37, 99, 235)
             pdf.set_text_color(255, 255, 255)
             for j, h in enumerate(headers):
                 pdf.cell(col_w[j], 7, h, border=1, fill=True, align="C" if j != 1 else "L")
             pdf.ln()
-            pdf.set_font("Helvetica", "", 8)
+            cjk(size=8)
             fill = False
 
         if fill:
@@ -1114,21 +1203,27 @@ def _generate_quote_pdf():
             pdf.set_fill_color(255, 255, 255)
         pdf.set_text_color(30, 41, 59)
 
-        subtotal = p["price"] * p["qty"]
+        subtitle = f"{p['model']} {p['name']}"
+        if p['specs']:
+            subtitle += f" ({p['specs']})"
+        subtotal = p["price"]
         pdf.cell(col_w[0], 7, str(i), border=1, align="C", fill=True)
-        pdf.cell(col_w[1], 7, p["name"][:30], border=1, fill=True)
-        pdf.cell(col_w[2], 7, str(p["qty"]), border=1, align="C", fill=True)
-        pdf.cell(col_w[3], 7, f"¥{p['price']:,}", border=1, align="R", fill=True)
-        pdf.cell(col_w[4], 7, f"¥{subtotal:,}", border=1, align="R", fill=True)
+        pdf.cell(col_w[1], 7, subtitle[:30], border=1, fill=True)
+        pdf.cell(col_w[2], 7, "1", border=1, align="C", fill=True)
+        pdf.cell(col_w[3], 7, f"\u00a5{p['price']:,}", border=1, align="R", fill=True)
+        pdf.cell(col_w[4], 7, f"\u00a5{subtotal:,}", border=1, align="R", fill=True)
         pdf.ln()
         fill = not fill
 
     pdf.ln(5)
 
     # --- 总价 ---
-    pdf.set_font("Helvetica", "B", 14)
+    if cjk_font_path:
+        pdf.set_font("CJK", "B", 14)
+    else:
+        pdf.set_font("Helvetica", "B", 14)
     pdf.set_text_color(220, 38, 38)
-    pdf.cell(0, 10, f"Total:  ¥{total_price:,}.00", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, f"\u5408\u8ba1:  \u00a5{total_price:,}.00", align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(10)
 
     # --- 签署区 ---
@@ -1137,15 +1232,15 @@ def _generate_quote_pdf():
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(10)
 
-    pdf.set_font("Helvetica", "", 9)
+    cjk(size=9)
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(0, 7, "Designer Signature:  __________________", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 7, "Customer Signature:  __________________", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 7, "\u8bbe\u8ba1\u5e08/\u5bfc\u8d2d\u7b7e\u540d:  __________________", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 7, "\u5ba2\u6237\u786e\u8ba4\u7b7e\u5b57:  __________________", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(8)
 
-    pdf.set_font("Helvetica", "", 7)
+    cjk(size=7)
     pdf.set_text_color(148, 163, 184)
-    pdf.multi_cell(0, 4, "This quotation is valid for 7 days. Includes free delivery and professional installation. Final interpretation rights belong to KUKA HOME.", align="C")
+    pdf.multi_cell(0, 4, "* \u672c\u65b9\u6848\u62a5\u4ef7\u6709\u6548\u671f\u4e3a 7 \u5929\u3002\u5305\u542b\u514d\u8d39\u9001\u8d27\u5165\u6237\u4e0e\u4e13\u4e1a\u5b89\u88c5\u670d\u52a1\u3002\u6700\u7ec8\u89e3\u91ca\u6743\u5f52 KUKA HOME \u5b98\u65b9\u6388\u6743\u95e8\u5e97\u6240\u6709\u3002", align="C")
 
     # 输出
     return pdf.output()
@@ -1396,6 +1491,14 @@ with main_tab1:
                 st.caption("床架候选:"); st.code(bed_summary[:500])
                 st.caption("床垫候选:"); st.code(mattress_summary[:500])
                 st.caption("配套候选:"); st.code(table_summary[:500])
+
+            # 保存候选产品到 session_state，供报价单使用
+            st.session_state.quote_candidates = {
+                "沙发": sofa_candidates,
+                "床架": bed_candidates,
+                "床垫": mattress_candidates,
+                "配套": table_candidates,
+            }
 
             # 标记哪些品类放宽了预算
             _relaxed_notes = []
