@@ -1305,12 +1305,13 @@ with main_tab1:
             if st.session_state.query_in_progress:
                 st.info("⏳ 正在检索中，请耐心等待...")
                 st.stop()
-            st.session_state.query_in_progress = True
             if not api_key.startswith("sk-"):
                 st.error("❌ 请先配置 DeepSeek API Key（侧边栏或 secrets.toml）")
-                st.session_state.query_in_progress = False
                 st.stop()
+            st.session_state.query_in_progress = True
+            st.rerun()
 
+        if st.session_state.query_in_progress:
             # 记录全屋搭配查询
             _log_query("full_plan", {
                 "style": style_pref, "room_width": room_width, "sofa_wall_len": sofa_wall_len,
