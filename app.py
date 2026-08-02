@@ -37,8 +37,6 @@ if "quote_form_data" not in st.session_state:
 # 防重复点击锁：标记查询是否正在执行中
 if "query_in_progress" not in st.session_state:
     st.session_state.query_in_progress = False
-if "trigger_query" not in st.session_state:
-    st.session_state.trigger_query = False
 if "guide_query_in_progress" not in st.session_state:
     st.session_state.guide_query_in_progress = False
 if "trigger_guide_query" not in st.session_state:
@@ -1303,16 +1301,14 @@ with main_tab1:
         st.subheader("✨ AI 搭配报告与推荐展示")
 
         if submit_btn:
+            # 防止重复点击
+            if st.session_state.query_in_progress:
+                st.info("⏳ 正在检索中，请耐心等待...")
+                st.stop()
             st.session_state.query_in_progress = True
-            st.session_state.trigger_query = True
-            st.rerun()
-
-        if st.session_state.get("query_in_progress") and st.session_state.get("trigger_query"):
-            st.session_state.trigger_query = False
             if not api_key.startswith("sk-"):
                 st.error("❌ 请先配置 DeepSeek API Key（侧边栏或 secrets.toml）")
                 st.session_state.query_in_progress = False
-                st.rerun()
                 st.stop()
 
             # 记录全屋搭配查询
