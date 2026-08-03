@@ -704,7 +704,7 @@ def stream_response(api_key, model, system_prompt, user_prompt, timeout=120):
         stream=True,
         temperature=0.2,
         timeout=timeout,
-        max_tokens=4096
+        max_tokens=16384
     )
     for chunk in stream:
         if chunk.choices[0].delta.content:
@@ -779,6 +779,63 @@ def _extract_category_quantities(report):
         if m:
             quantities[cat] = int(m.group(1))
     return quantities
+
+
+def _format_candidates_summary(candidates_dict):
+    """将候选产品字典（category → [product_dict]）格式化为与 filter_candidates 相同格式的摘要文本"""
+    cat_names = {"沙发": "沙发", "床架": "床架", "床垫": "床垫", "配套": "配套"}
+    parts = []
+    for cat_key, cat_label in cat_names.items():
+        products = candidates_dict.get(cat_key, [])
+        if not products:
+            parts.append(f"【{cat_label}候选】：（无匹配产品）")
+            continue
+        lines = []
+        for p in products:
+            line = f"- {p.get('model', '?')} {p.get('name', '?')} | {p.get('series', '')} | 价格区间: ¥{p.get('min_price', 0):,}~¥{p.get('max_price', 0):,}"
+            if p.get("lengths"):
+                line += f" | 可选长度(CM): {', '.join(str(l) for l in p['lengths'])}"
+            if p.get("specs"):
+                line += f" | 规格: {', '.join(p['specs'][:3])}"
+            if p.get("colors"):
+                colors_show = p["colors"]
+                if any('(' in c or '（' in c for c in colors_show):
+                    line += f" | 颜色: {'/'.join(colors_show[:3])}"
+                else:
+                    line += f" | 配色: {'/'.join(colors_show[:3])}"
+            if p.get("color_tone"):
+                line += f" | 色调: {p['color_tone']}"
+            if p.get("bed_frame_height"):
+                line += f" | 床身高度: {p['bed_frame_height']}cm"
+            if p.get("mattress_thickness"):
+                line += f" | 适配床垫厚度: {p['mattress_thickness']}"
+            if p.get("headboard_type"):
+                line += f" | 靠包类型: {p['headboard_type']}"
+            if p.get("tagline"):
+                line += f" | 卖点: {p['tagline']}"
+            if p.get("design_style"):
+                line += f" | 风格: {p['design_style']}"
+            if p.get("features"):
+                line += f" | 特点: {'; '.join(p['features'][:2])}"
+            if p.get("material"):
+                line += f" | 材质: {p['material'][:60]}"
+            if p.get("price_rows"):
+                line += "\n    " + "\n    ".join(p["price_rows"][:3])
+            if p.get("sofa_dimensions"):
+                dims = p["sofa_dimensions"]
+                parts_d = []
+                for key in ["靠背高度", "坐深", "坐垫高度", "沙发深度"]:
+                    if key in dims:
+                        parts_d.append(f"{key}: {dims[key]}cm")
+                if parts_d:
+                    line += f" | {' '.join(parts_d)}"
+            if p.get("sofa_components"):
+                comps = p["sofa_components"]
+                line += f" | 组件: {' '.join(f'{k}={v}cm' for k, v in list(comps.items())[:3])}"
+            lines.append(line)
+        summary = "\n".join(lines) if lines else "（无匹配产品）"
+        parts.append(f"【{cat_label}候选】：\n{summary}")
+    return "\n\n".join(parts)
 
 
 def _get_recommended_products(candidates, report, images_db):
@@ -1890,16 +1947,37 @@ with main_tab1:
                         st.stop()
                     # 记录微调查询
                     _log_query("refine_plan", {"instruction": edit_instruction})
-                    # 组装精简的微调 Prompt
-                    edit_prompt = f"""你是一名专业软装设计师。以下是之前为客户生成的方案：
-    ---
-    {st.session_state.current_report}
-    ---
-    客户提出了以下修改意见：
-    "{edit_instruction}"
+                    # 从 session_state 获取候选产品数据和表单数据
+                    _candidates = st.session_state.get("quote_candidates", {})
+                    _form = st.session_state.get("quote_form_data", {})
+                    _total_budget = _form.get("budget", 0)
+                    # 计算沙发长度约束
+                    _sofa_wall_cm = _form.get("sofa_wall_len", 0) * 100
+                    _sofa_min = int(_sofa_wall_cm * 0.7)
+                    _sofa_max = int(_sofa_wall_cm * 0.85)
+                    # 生成候选产品摘要
+                    _candidates_text = _format_candidates_summary(_candidates)
+                    # 组装完整的微调 Prompt（必须包含候选产品数据，防止 AI 编造价格/型号）
+                    edit_prompt = f"""你是一位顶级的家居软装与健康睡眠主理人。**严格仅从下方精选候选产品中**为客户搭配方案，不得推荐列表之外的产品。
 
-    请在保留原方案合理部分的基础上，针对客户意见重新更新一份完整软装报告与报价单。
-    """
+{_candidates_text}
+
+【预算参考】：客户总预算约 ¥{_total_budget:,}
+
+以下是之前为客户生成的方案：
+---
+{st.session_state.current_report}
+---
+
+客户提出了以下修改意见：
+"{edit_instruction}"
+
+【关键规则（必须严格遵守）】：
+1. 🚫 **严格仅使用上方列出的候选产品**，不得编造候选列表中不存在的产品型号、价格或规格。
+2. ⚠️ **价格必须使用候选产品中标注的真实价格**，不得自行编造。任何候选产品未列出的价格均为无效。
+3. 📐 **沙发长度约束**：如果涉及沙发，总长度必须在 {_sofa_min}~{_sofa_max}cm 之间。
+4. 💰 **总价控制**：推荐方案总价不得超过预算 ¥{_total_budget:,}，必须在输出中逐项列出价格并累加确认。
+5. 输出格式与原方案一致，保留完整报告结构（尺寸分析、产品清单、价格汇总、睡眠建议等）。"""
                     try:
                         st.info("🤖 AI 正在根据您的意见调整方案...")
                         new_report = st.write_stream(stream_response(api_key, model_name, edit_prompt, f"客户修改意见：{edit_instruction}"))
