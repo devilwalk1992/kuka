@@ -1737,12 +1737,6 @@ with main_tab1:
                 table_summary += "\n（注：已适度放宽预算限制）"
                 _table_relaxed = True
 
-            with st.expander("🔍 诊断：AI 收到的候选产品摘要", expanded=False):
-                st.caption("沙发候选:"); st.code(sofa_summary[:500])
-                st.caption("床架候选:"); st.code(bed_summary[:500])
-                st.caption("床垫候选:"); st.code(mattress_summary[:500])
-                st.caption("配套候选:"); st.code(table_summary[:500])
-
             # 保存候选产品到 session_state，供报价单使用
             st.session_state.quote_candidates = {
                 "沙发": sofa_candidates,
@@ -1846,8 +1840,8 @@ with main_tab1:
                     st.caption(f"⏱️ 耗时明细：产品筛选 {filter_time:.1f}s → LLM 流式输出 {llm_time:.1f}s → 总耗时 {total_time:.1f}s")
                 # 保存当前报告到 session_state，供后续微调使用
                 st.session_state.current_report = full_response
-                # 记录历史版本
-                st.session_state.report_history.append(full_response)
+                # 记录历史版本（安全初始化）
+                st.session_state.setdefault("report_history", []).append(full_response)
             except Exception as e:
                 st.error(f"❌ API 调用失败: {e}")
                 st.session_state.query_in_progress = False
@@ -1987,7 +1981,7 @@ with main_tab1:
                         st.info("🤖 AI 正在根据您的意见调整方案...")
                         new_report = st.write_stream(stream_response(api_key, model_name, edit_prompt, f"客户修改意见：{edit_instruction}"))
                         st.session_state.current_report = new_report
-                        st.session_state.report_history.append(new_report)
+                        st.session_state.setdefault("report_history", []).append(new_report)
                         st.success("✅ 方案已更新！")
                     except Exception as e:
                         st.error(f"❌ 微调失败: {e}")
