@@ -632,6 +632,11 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
         need = min(min_candidates - len(candidates), len(fallback_pool))
         candidates.extend(fallback_pool[:need])
 
+    # ------------------ 优化点 1：按最低价格升序排序 ------------------
+    # 确保低价/性价比款排在最前面，防止 AI 产生"库里都是贵货"的先入为主错觉
+    candidates.sort(key=lambda x: x.get("min_price", 0))
+    # ---------------------------------------------------------------
+
     # 生成精简摘要文本（用 .get() 安全读取，兼容旧缓存）
     lines = []
     for p in candidates:
@@ -1624,18 +1629,26 @@ with main_tab1:
             sofa_min = int(sofa_wall_cm * 0.7)
             sofa_max = int(sofa_wall_cm * 0.85)
 
+            # ------------------ 优化点 2：按单个卧室预算精细化拦截 ------------------
+            # 计算单个卧室的最大预算（例如主卧预算），防止把单价几万元的床混入候选库
+            max_single_room_budget = max([amt for _, amt in bedroom_budgets], default=bed_budget)
+            # 单张床架预算上限设为单卧室预算的 65%，单张床垫设为 55%
+            single_bed_max = int(max_single_room_budget * 0.65) if bedroom_configs else bed_budget
+            single_mat_max = int(max_single_room_budget * 0.55) if bedroom_configs else bed_budget
+
             sofa_candidates, sofa_summary = filter_candidates(
                 product_index, category="沙发", max_price=sofa_budget, sofa_length=sofa_wall_cm, style=style_pref
             )
             bed_candidates, bed_summary = filter_candidates(
-                product_index, category="床架", max_price=bed_budget
+                product_index, category="床架", max_price=single_bed_max
             )
             mattress_candidates, mattress_summary = filter_candidates(
-                product_index, category="床垫", max_price=bed_budget
+                product_index, category="床垫", max_price=single_mat_max
             )
             table_candidates, table_summary = filter_candidates(
                 product_index, category="配套", max_price=table_budget
             )
+            # ----------------------------------------------------------------------
 
             # 降级策略：某品类筛选无结果时适度放宽价格限制（1.5倍原品类预算，而非完全移除）
             _sofa_relaxed = False
@@ -1648,14 +1661,14 @@ with main_tab1:
             _bed_relaxed = False
             if "无匹配产品" in bed_summary:
                 bed_candidates, bed_summary = filter_candidates(
-                    product_index, category="床架", max_price=int(bed_budget * 1.5)
+                    product_index, category="床架", max_price=int(single_bed_max * 1.5)
                 )
                 bed_summary += "\n（注：已适度放宽预算限制）"
                 _bed_relaxed = True
             _mat_relaxed = False
             if "无匹配产品" in mattress_summary:
                 mattress_candidates, mattress_summary = filter_candidates(
-                    product_index, category="床垫", max_price=int(bed_budget * 1.5)
+                    product_index, category="床垫", max_price=int(single_mat_max * 1.5)
                 )
                 mattress_summary += "\n（注：已适度放宽预算限制）"
                 _mat_relaxed = True
@@ -1689,7 +1702,15 @@ with main_tab1:
             if _table_relaxed: _relaxed_notes.append("配套")
             _relaxed_hint = f"（以下品类候选已适度放宽：{'、'.join(_relaxed_notes)}，请优先选择其中价格较低的产品）" if _relaxed_notes else ""
 
-            system_prompt = f"""你是一位顶级的家居软装与健康睡眠主理人。**严格仅从下方精选候选产品中**为客户搭配方案，不得推荐列表之外的产品（如无合适产品则如实说明）。
+            # ------------------ 优化点 3：拆分具体卧室的床与床垫目标 ------------------
+            bedroom_budget_lines = []
+            for label, amount in bedroom_budgets:
+                b_bed = int(amount * 0.55)
+                b_mat = int(amount * 0.45)
+                bedroom_budget_lines.append(f"  · {label}（床架+床垫）：总目标约 ¥{amount:,}（建议：床架约 ¥{b_bed:,}，床垫约 ¥{b_mat:,}）")
+            # ------------------------------------------------------------------------
+
+            system_prompt = f"""你是一位顶级的家居软装与健康睡眠主理人。**严格仅从下方精选候选产品中**为客户搭配方案，不得推荐列表之外的产品。
 
 【精选沙发候选】：
 {sofa_summary}
@@ -1700,41 +1721,30 @@ with main_tab1:
 【精选床垫候选】：
 {mattress_summary}
 
-【精选配套（茶几/电视柜/餐桌椅）候选】：
+【精选配套候选】：
 {table_summary}
 
-【预算分配】（客户总预算：¥{total_budget:,}）：
+【预算分配参考】（客户总预算：¥{total_budget:,}）：
 - 🛋️ 沙发品类预算参考：约 ¥{sofa_budget:,}  {_relaxed_hint}
-- 🛏️ 床架+床垫品类预算参考：约 ¥{bed_budget:,}（含所有卧室）{_relaxed_hint}
-{chr(10).join(f'  · {label}：约 ¥{amount:,}' for label, amount in bedroom_budgets) if bedroom_budgets else ''}
+- 🛏️ 卧室品类细分目标（床架 + 床垫）：
+{chr(10).join(bedroom_budget_lines) if bedroom_budget_lines else '  无卧室需求'}
 - 🪑 配套（茶几/电视柜/餐桌椅）预算参考：约 ¥{table_budget:,}  {_relaxed_hint}
-- ⚠️ 以上为品类预算参考，各品类可适度调整，只要总价不超过总预算 ¥{total_budget:,} 即可
 
-【搭配规则】：
-        1. 💰 **严控总预算（最高优先级）**：
+【打破价格偏见与匹配规则（重中之重）】：
+        1. 🚫 **打破价格偏见（核心）**：
+           - **绝对不要产生"一个卧室必须 8000 元"的预设错觉！**
+           - 候选列表中包含大量 **¥2,000 左右的入门/性价比床架** 与 **¥1,500~¥2,500 的护脊床垫**。一个卧室（床架+床垫）完全可以在 **¥3,500 ~ ¥4,500** 内高性价比完成配置！
+           - 对于次卧/老人房/儿童房或低预算需求，**必须优先选择候选列表中最低价格区间的 SKU**（如 2000 元床架 + 1800 元床垫），严禁因偏好中高端款而断定"超预算"。
+        2. 💰 **严控总预算（最高优先级）**：
            - 推荐方案总价**必须**控制在预算的 **95%~100%** 之间（即 ¥{int(total_budget*0.95):,}~¥{total_budget:,}），**严格禁止超预算**！
-           - 各品类预算分配为参考值，品类之间可适当调整（如客厅预算少花点、卧室多花点），只要总价不超预算即可。
-           - 如果候选产品组合超出预算，必须减少品类或选择更低价的产品/规格，直到总价不超过 ¥{total_budget:,}。
-           - **必须在输出中逐项列出每个产品的价格，并在最后计算累加总价，确认不超过 ¥{total_budget:,}。**
-           - **重要：不要想当然地认为产品价格很高。请先查看下方候选产品中的实际价格，再判断能否搭配。候选产品中可能包含性价比款（如床架¥2,000+、床垫¥2,000+），实际总价可能低于你的预期。**
-        2. 🏷️ **按预算档次精准推荐**：顾家产品按价格分档次，请根据客户预算匹配合适档次：
-           - 🛋️ **沙发（三组合规格实际成交价）**：性价比 6000~10000元 | 中坚款 10000~17000元 | 高端款 17000元以上
-           - 🛏️ **床架**：性价比 2000~5000元 | 中坚款 5000~7000元 | 高端款 7000元以上
-           - 🛏️ **床垫**：性价比 2000~4000元 | 中坚款 4000~7000元 | 高端款 7000元以上
-           - 预算紧张时优先在**性价比款**中筛选，主卧/客厅等核心空间预算充足时可在**中坚款/高端款**中筛选。
+           - 必须在输出中逐项列出每个产品的价格，并在最后计算累加总价，确认不超过 ¥{total_budget:,}。
         3. 🛏️ **必须为每个卧室配置床架+床垫**：客户选了卧室就必须推荐对应的床和床垫，不得遗漏。
-        4. 📐 **沙发长度严格匹配**：沙发总长度必须在 **{sofa_min}~{sofa_max}cm** 之间（背景墙 {sofa_wall_len} 米的 70%~85%），不得推荐此范围之外的规格。
-        5. ✅ **严格按采购清单推荐**：只推荐【采购清单】中列出的品类，未列出的品类不要推荐。卧室配置已自动列入采购清单。
-        6. 💤 **融入科学睡眠理念**。
-        7. 🛌 **床垫厚度匹配**：计算睡眠总高度时使用床架标注的**床身高度**（即床架平台离地高度），搭配床垫后总高度建议 45~55cm，**非**床头靠背高度。
-        8. ⚠️ **价格必须使用候选产品中标注的真实价格**：每个产品下方标注有具体的规格价格表（如"1.5右B+3左A丨扶手翻折 → 296cm, ¥12,399"），请直接从这些数据中引用价格，**不得自行编造价格**。如候选产品中无对应规格则如实说明。
-        9. 🪑 **推荐餐桌时必须标配 4 把椅子**：配套产品中的餐台（如 PT3188T 等）必须搭配对应系列的餐椅（如 PT3188Y），且每张餐台搭配 4 把椅子计算总价。
-        10. 🎨 **色调匹配**：优先推荐与客户墙面/地面颜色同色调的产品。墙面浅色系（如奶咖色/奶油白/纯白）搭配浅色系产品，深色系墙面（太空灰/咖色护墙板）可搭配深色系产品形成层次感。地面同理。
-        11. ⛔ **超预算处理**：如果所有候选产品组合后的总价仍超过预算，请主动告知客户并给出最接近预算的方案，**不要强行凑出超预算的方案**。
+        4. 📐 **沙发长度严格匹配**：沙发总长度必须在 **{sofa_min}~{sofa_max}cm** 之间。
+        5. ⚠️ **价格必须使用候选产品中标注的真实价格**，不得自行编造。
 
 【输出结构】：
 一、空间尺寸与气场碰撞分析
-二、全屋推荐产品清单与报价明细（**每个产品必须注明具体规格/组合名称、总长度、实际成交价**，不得只写产品名和价格范围）
+二、全屋推荐产品清单与报价明细（**每个产品必须注明具体规格/组合名称、实际成交价**）
     请在推荐清单后附上 **逐项价格计算过程**，确认各品类在预算分配内、总价不超过 ¥{total_budget:,}。
 三、价格汇总与预算控制说明
 四、科学睡眠理念与健康生活场景建议"""
