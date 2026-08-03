@@ -1856,14 +1856,19 @@ with main_tab1:
             # 图集
             st.divider()
             st.subheader("🖼️ 推荐产品视觉预览")
-            matched_models = set()
-            for m in re.findall(r'[A-Za-z0-9.]+', full_response):
-                if len(m) >= 4:
-                    matched_models.add(m.upper())
+            # 用候选产品列表精确匹配图片，而非从 AI 文本中模糊提取
+            _all_candidates = st.session_state.get("quote_candidates", {})
+            candidate_models = set()
+            for cat_products in _all_candidates.values():
+                for p in cat_products:
+                    m = p.get("model", "")
+                    if m and len(m) >= 4:
+                        candidate_models.add(m.upper())
 
             display_count = 0
             for folder_key, img_dict in images_db.items():
-                if any(m in folder_key.upper() for m in matched_models):
+                fk_upper = folder_key.upper()
+                if any(m in fk_upper or fk_upper in m for m in candidate_models):
                     display_count += 1
                     with st.expander(f"📦 视觉预览：{folder_key}", expanded=True):
                         tab_cat, tab_scene, tab_home = st.tabs(["📦 规格/浏览图", "🏡 展厅/场景效果图", "📸 客户入户实景图"])
@@ -2136,10 +2141,13 @@ with main_tab2:
 
                 st.markdown("---")
                 st.markdown("### 🖼️ 匹配产品图片")
-                matched_models = set(re.findall(r'[A-Za-z0-9.]+', full_result))
+                # 用候选产品列表精确匹配图片，而非从 AI 文本中模糊提取
+                candidate_models = set(p.get("model", "").upper() for p in candidates)
                 display_count = 0
                 for folder_key, img_dict in images_db.items():
-                    if any(m.upper() in folder_key.upper() for m in matched_models if len(m) >= 4):
+                    # 检查 folder_key 是否匹配任何候选产品型号
+                    fk_upper = folder_key.upper()
+                    if any(m in fk_upper or fk_upper in m for m in candidate_models if len(m) >= 4):
                         display_count += 1
                         st.markdown(f"#### 📦 {folder_key}")
                         tab_cat, tab_scene, tab_home = st.tabs(["📦 规格/浏览图", "🏡 展厅/场景效果图", "📸 客户入户实景图"])
