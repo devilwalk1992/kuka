@@ -643,48 +643,40 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
         if p.get("colors"):
             colors_show = p["colors"]
             if any('(' in c or '（' in c for c in colors_show):
-                line += f" | 颜色: {'/'.join(colors_show[:5])}"
+                line += f" | 颜色: {'/'.join(colors_show[:3])}"
             else:
-                line += f" | 配色: {'/'.join(colors_show[:5])}"
+                line += f" | 配色: {'/'.join(colors_show[:3])}"
         if p.get("color_tone"):
             line += f" | 色调: {p['color_tone']}"
-        if p.get("color_codes"):
-            line += f" | 色号: {', '.join(p['color_codes'][:2])}"
         if p.get("bed_frame_height"):
             line += f" | 床身高度: {p['bed_frame_height']}cm"
         if p.get("mattress_thickness"):
             line += f" | 适配床垫厚度: {p['mattress_thickness']}"
         if p.get("headboard_type"):
             line += f" | 靠包类型: {p['headboard_type']}"
-        if p.get("product_config"):
-            line += f"\n    产品配置: {p['product_config']}"
-        if p.get("material"):
-            line += f"\n    材质: {p['material']}"
-        if p.get("bed_head_height") and p["bed_head_height"] > 0:
-            line += f" | 床头高度: {p['bed_head_height']}cm"
-        if p.get("bed_total_length") and p["bed_total_length"] > 0:
-            line += f" | 床总长: {p['bed_total_length']}cm"
-        if p.get("bed_head_width") and p["bed_head_width"] > 0:
-            line += f" | 床头尺寸(总宽): {p['bed_head_width']}cm"
         if p.get("tagline"):
             line += f" | 卖点: {p['tagline']}"
         if p.get("design_style"):
             line += f" | 风格: {p['design_style']}"
         if p.get("features"):
             line += f" | 特点: {'; '.join(p['features'][:2])}"
+        if p.get("material"):
+            # 材质简短显示，不换行
+            line += f" | 材质: {p['material'][:60]}"
         if p.get("price_rows"):
-            line += "\n    " + "\n    ".join(p["price_rows"][:6])
+            # 只显示前3条价格，减少 token 量
+            line += "\n    " + "\n    ".join(p["price_rows"][:3])
         if p.get("sofa_dimensions"):
             dims = p["sofa_dimensions"]
             parts = []
-            for key in ["靠背高度", "坐深", "坐垫高度", "扶手高度", "沙发深度"]:
+            for key in ["靠背高度", "坐深", "坐垫高度", "沙发深度"]:
                 if key in dims:
                     parts.append(f"{key}: {dims[key]}cm")
             if parts:
                 line += f" | {' '.join(parts)}"
         if p.get("sofa_components"):
             comps = p["sofa_components"]
-            line += f" | 组件尺寸: {', '.join(f'{k}={v}cm' for k, v in list(comps.items())[:6])}"
+            line += f" | 组件: {' '.join(f'{k}={v}cm' for k, v in list(comps.items())[:3])}"
         lines.append(line)
 
     summary = "\n".join(lines) if lines else "（无匹配产品）"
@@ -696,7 +688,7 @@ def _get_client(api_key):
     return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
 
 
-def stream_response(api_key, model, system_prompt, user_prompt):
+def stream_response(api_key, model, system_prompt, user_prompt, timeout=120):
     client = _get_client(api_key)
     stream = client.chat.completions.create(
         model=model,
@@ -705,7 +697,9 @@ def stream_response(api_key, model, system_prompt, user_prompt):
             {"role": "user", "content": user_prompt}
         ],
         stream=True,
-        temperature=0.2
+        temperature=0.2,
+        timeout=timeout,
+        max_tokens=4096
     )
     for chunk in stream:
         if chunk.choices[0].delta.content:
@@ -757,18 +751,44 @@ def _extract_recommended_models(report):
     return matched
 
 
+def _extract_category_quantities(report):
+    """从报告文本中提取每个品类的推荐数量（如"3张床"、"3个床垫"）"""
+    quantities = {}
+    # 常见软装品类关键词
+    categories = ["床垫", "床", "沙发", "茶几", "餐桌", "餐椅", "电视柜", "衣柜", "床头柜", "书桌", "书椅", "边几", "斗柜", "装饰柜", "书柜", "酒柜"]
+    # 按长度降序排序，避免"床垫"被"床"先匹配
+    categories.sort(key=len, reverse=True)
+    for cat in categories:
+        # 匹配 "3张床垫", "3个床", "3组沙发" 等模式
+        m = re.search(r'(\d+)\s*[张个组]' + re.escape(cat), report)
+        if m:
+            quantities[cat] = int(m.group(1))
+            continue
+        # 匹配 "床垫3张", "床3个" 等模式
+        m = re.search(re.escape(cat) + r'\s*(\d+)\s*[张个组]', report)
+        if m:
+            quantities[cat] = int(m.group(1))
+            continue
+        # 匹配 "床×3", "床垫×3" 等模式
+        m = re.search(re.escape(cat) + r'\s*[×xX]\s*(\d+)', report)
+        if m:
+            quantities[cat] = int(m.group(1))
+    return quantities
+
+
 def _get_recommended_products(candidates, report, images_db):
-    """从候选产品中筛选出 AI 报告中推荐的产品"""
+    """从候选产品中筛选出 AI 报告中推荐的产品，并分配正确数量"""
     recommended_models = _extract_recommended_models(report)
+    category_quantities = _extract_category_quantities(report)
     products = []
     seen_models = set()
+    # 统计每个品类有多少个产品被推荐
     for cat_name, cat_products in candidates.items():
         for p in cat_products:
             model = p.get("model", "").upper()
             if model in seen_models:
                 continue
             seen_models.add(model)
-            # 只保留在 AI 推荐列表中出现的型号
             if model not in recommended_models:
                 continue
             first_price = p.get("min_price", 0)
@@ -784,12 +804,19 @@ def _get_recommended_products(candidates, report, images_db):
             colors = p.get("colors", [])
             color_str = "、".join(colors[:3]) if colors else ""
             img_path = _get_product_image(model, images_db)
+            # 根据报告文本确定该品类数量，默认为1
+            qty = 1
+            for cat_key, cat_qty in category_quantities.items():
+                if cat_key in cat_name or cat_name in cat_key:
+                    qty = cat_qty
+                    break
             products.append({
                 "model": p.get("model", ""),
                 "name": p.get("name", ""),
                 "series": p.get("series", ""),
                 "category": cat_name,
                 "price": first_price,
+                "quantity": qty,
                 "specs": spec_str,
                 "components": comp_str,
                 "colors": color_str,
@@ -818,12 +845,18 @@ def _get_recommended_products(candidates, report, images_db):
                 colors = p.get("colors", [])
                 color_str = "、".join(colors[:3]) if colors else ""
                 img_path = _get_product_image(model, images_db)
+                qty = 1
+                for cat_key, cat_qty in category_quantities.items():
+                    if cat_key in cat_name or cat_name in cat_key:
+                        qty = cat_qty
+                        break
                 products.append({
                     "model": p.get("model", ""),
                     "name": p.get("name", ""),
                     "series": p.get("series", ""),
                     "category": cat_name,
                     "price": first_price,
+                    "quantity": qty,
                     "specs": spec_str,
                     "components": comp_str,
                     "colors": color_str,
@@ -832,6 +865,89 @@ def _get_recommended_products(candidates, report, images_db):
                     "img_path": img_path,
                 })
     return products
+
+
+def _calculate_dynamic_budget(total_budget, need_sofa, need_chair, need_table, need_tv, need_dining, bedroom_count):
+    """根据客户实际采购需求动态分配预算。
+
+    权重分配逻辑：
+    - 沙发作为客厅核心，占较大权重
+    - 主卧床架+床垫次之
+    - 次卧逐级递减
+    - 配套产品权重最低
+
+    示例：沙发+主卧+1次卧 → 沙发~40%, 主卧~35%, 次卧~18%, 配套~7%
+
+    Returns:
+        (sofa_budget, bed_budget, table_budget, bedroom_budgets)
+        - bedroom_budgets: list of (label, amount) 用于提示词展示
+    """
+    # 不重复累计：一块钱只算一次
+    has_table = need_table or need_tv or need_dining
+
+    # 第一步：分配权重
+    weights = {}
+    if need_sofa:
+        # 卧室多时沙发权重适当降低，给床品留更多预算
+        sofa_weight = 40 if bedroom_count <= 2 else 35
+        weights['沙发'] = sofa_weight
+    if need_chair:
+        weights['休闲椅'] = 8
+    for i in range(bedroom_count):
+        label = '主卧' if i == 0 else f'次卧{i}'
+        # 主卧权重最高，次卧逐级递减，但保证最低15
+        weight = 35 if i == 0 else (20 if i == 1 else 16)
+        weights[label] = weight
+    if has_table:
+        weights['配套'] = 10
+
+    if not weights:
+        weights['沙发'] = 100
+
+    # 第二步：按权重归一化分配
+    total_weight = sum(weights.values())
+    allocated = {k: int(total_budget * v / total_weight) for k, v in weights.items()}
+
+    # 第三步：合并为品类预算
+    sofa_budget = allocated.get('沙发', 0)
+    bed_budget = sum(v for k, v in allocated.items() if k in ('主卧',) or k.startswith('次卧'))
+    table_budget = allocated.get('配套', 0) + allocated.get('休闲椅', 0)
+
+    # 第四步：各品类最小预算保障（确保筛选能出结果）
+    min_sofa = 5000 if need_sofa else 0
+    min_bed = 3000 * bedroom_count
+    min_table = 3000 if has_table else 0
+    total_min = min_sofa + min_bed + min_table
+
+    if total_min >= total_budget:
+        # 预算太少，全部按最小保障等比缩放
+        scale = total_budget / max(total_min, 1)
+        sofa_budget = int(min_sofa * scale)
+        bed_budget = int(min_bed * scale)
+        table_budget = int(min_table * scale)
+    else:
+        sofa_budget = max(sofa_budget, min_sofa)
+        bed_budget = max(bed_budget, min_bed)
+        table_budget = max(table_budget, min_table)
+
+        # 确保总和不超预算
+        total = sofa_budget + bed_budget + table_budget
+        if total > total_budget:
+            scale = total_budget / total
+            sofa_budget = int(sofa_budget * scale)
+            bed_budget = int(bed_budget * scale)
+            table_budget = int(table_budget * scale)
+
+    # 第五步：计算各卧室预算明细（用于提示词展示）
+    bedroom_budgets = []
+    total_bed_weight = sum(v for k, v in weights.items() if k in ('主卧',) or k.startswith('次卧'))
+    for i in range(bedroom_count):
+        label = '主卧' if i == 0 else f'次卧{i}'
+        w = weights.get(label, 12)
+        room_budget = int(bed_budget * w / total_bed_weight) if total_bed_weight > 0 else 0
+        bedroom_budgets.append((label, room_budget))
+
+    return sofa_budget, bed_budget, table_budget, bedroom_budgets
 
 
 def _generate_quote_html():
@@ -843,7 +959,7 @@ def _generate_quote_html():
     # 从 AI 报告中提取推荐产品
     products = _get_recommended_products(candidates, report, images_db)
 
-    total_price = sum(p["price"] for p in products)
+    total_price = sum(p["price"] * p.get("quantity", 1) for p in products)
     now = datetime.now()
     doc_no = f"QU{now.strftime('%Y%m%d%H%M%S')}"
 
@@ -897,8 +1013,8 @@ def _generate_quote_html():
                 <br><span style="color:#94a3b8;font-size:10px;">{p['series']} · {p['category']}</span>
                 <br>{spec_detail}
             </td>
-            <td style="text-align: center;">1</td>
-            <td style="text-align: right; font-weight: bold; color:#dc2626;">¥{p['price']:,}</td>
+            <td style="text-align: center;">{p.get('quantity', 1)}</td>
+            <td style="text-align: right; font-weight: bold; color:#dc2626;">¥{p['price']:,}<br><small style="color:#94a3b8;font-weight:normal;">小计: ¥{p['price'] * p.get('quantity', 1):,}</small></td>
         </tr>"""
 
     # 卧室信息行
@@ -1061,12 +1177,24 @@ def _generate_quote_pdf():
     candidates = st.session_state.get("quote_candidates", {})
     report = st.session_state.get("current_report", "")
 
-    # 注册中文字体
-    cjk_font_path = "C:/Windows/Fonts/msyh.ttc"
-    if not os.path.exists(cjk_font_path):
+    # 注册中文字体 - 按优先级尝试可用字体
+    cjk_font_path = None
+    CJK_BOLD_PATH = None
+    # 方案1: 使用 msyh.ttc (微软雅黑, TTC 集合, index 0=常规, 1=粗体)
+    if os.path.exists("C:/Windows/Fonts/msyh.ttc"):
+        cjk_font_path = "C:/Windows/Fonts/msyh.ttc"
+        if os.path.exists("C:/Windows/Fonts/msyhbd.ttc"):
+            CJK_BOLD_PATH = "C:/Windows/Fonts/msyhbd.ttc"
+    # 方案2: 使用 simsun.ttc (宋体)
+    if not cjk_font_path and os.path.exists("C:/Windows/Fonts/simsun.ttc"):
         cjk_font_path = "C:/Windows/Fonts/simsun.ttc"
-    if not os.path.exists(cjk_font_path):
-        cjk_font_path = None
+        CJK_BOLD_PATH = None  # simsun 没有粗体，用 same font fallback
+    # 方案3: 使用 simfang.ttf (仿宋, TTF 格式最可靠)
+    if not cjk_font_path and os.path.exists("C:/Windows/Fonts/simfang.ttf"):
+        cjk_font_path = "C:/Windows/Fonts/simfang.ttf"
+    # 方案4: 使用 simhei.ttf (黑体, 纯 TTF)
+    if not cjk_font_path and os.path.exists("C:/Windows/Fonts/simhei.ttf"):
+        cjk_font_path = "C:/Windows/Fonts/simhei.ttf"
 
     # 从 AI 报告中提取推荐产品
     recommended_products = _get_recommended_products(candidates, report, images_db)
@@ -1078,10 +1206,11 @@ def _generate_quote_pdf():
             "series": p["series"],
             "category": p["category"],
             "price": p["price"],
+            "quantity": p.get("quantity", 1),
             "specs": p["specs"],
         })
 
-    total_price = sum(p["price"] for p in products)
+    total_price = sum(p["price"] * p["quantity"] for p in products)
     now = datetime.now()
     doc_no = f"QU{now.strftime('%Y%m%d%H%M%S')}"
 
@@ -1101,14 +1230,34 @@ def _generate_quote_pdf():
 
     # 创建 PDF
     class QuotePDF(FPDF):
+        def __init__(self, font_path, bold_path=None):
+            super().__init__()
+            self.font_path = font_path
+            if font_path:
+                # 判断是否为 TTC 集合字体
+                is_ttc = font_path.lower().endswith(".ttc")
+                if is_ttc:
+                    # TTC 集合字体: collection_font_number=0 为常规
+                    self.add_font("CJK", "", font_path, collection_font_number=0)
+                    if bold_path and os.path.exists(bold_path):
+                        # 有独立的粗体 TTC 文件
+                        self.add_font("CJK", "B", bold_path, collection_font_number=0)
+                    else:
+                        # 用同一个 TTC 的 index 1 或 index 0 作为粗体
+                        self.add_font("CJK", "B", font_path, collection_font_number=1)
+                else:
+                    # TTF 字体: 直接添加
+                    self.add_font("CJK", "", font_path)
+                    self.add_font("CJK", "B", font_path)
+
         def header(self):
-            if cjk_font_path:
+            if self.font_path:
                 self.set_font("CJK", "B", 16)
             else:
                 self.set_font("Helvetica", "B", 16)
             self.set_text_color(37, 99, 235)
             self.cell(0, 10, "KUKA HOME  \u8f6f\u88c5\u5b9a\u5236\u62a5\u4ef7\u5355", new_x="LMARGIN", new_y="NEXT")
-            if cjk_font_path:
+            if self.font_path:
                 self.set_font("CJK", "", 8)
             else:
                 self.set_font("Helvetica", "", 8)
@@ -1119,18 +1268,14 @@ def _generate_quote_pdf():
 
         def footer(self):
             self.set_y(-15)
-            if cjk_font_path:
+            if self.font_path:
                 self.set_font("CJK", "", 8)
             else:
                 self.set_font("Helvetica", "", 8)
             self.set_text_color(148, 163, 184)
             self.cell(0, 10, f"\u7b2c {self.page_no()} \u9875 / \u5171 {{nb}} \u9875", align="C")
 
-    pdf = QuotePDF()
-    # 注册 CJK 字体（必须在 add_page 之前，否则 header() 中无法使用）
-    if cjk_font_path:
-        pdf.add_font("CJK", "", cjk_font_path, subfont=0)
-        pdf.add_font("CJK", "B", cjk_font_path, subfont=0)
+    pdf = QuotePDF(cjk_font_path, CJK_BOLD_PATH)
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
@@ -1241,10 +1386,10 @@ def _generate_quote_pdf():
         subtitle = f"{p['model']} {p['name']}"
         if p['specs']:
             subtitle += f" ({p['specs']})"
-        subtotal = p["price"]
+        subtotal = p["price"] * p["quantity"]
         pdf.cell(col_w[0], 7, str(i), border=1, align="C", fill=True)
         pdf.cell(col_w[1], 7, subtitle[:30], border=1, fill=True)
-        pdf.cell(col_w[2], 7, "1", border=1, align="C", fill=True)
+        pdf.cell(col_w[2], 7, str(p["quantity"]), border=1, align="C", fill=True)
         pdf.cell(col_w[3], 7, f"\u00a5{p['price']:,}", border=1, align="R", fill=True)
         pdf.cell(col_w[4], 7, f"\u00a5{subtotal:,}", border=1, align="R", fill=True)
         pdf.ln()
@@ -1471,9 +1616,9 @@ with main_tab1:
             }
 
             # ---- 预筛选：按品类+预算筛选候选产品 ----
-            sofa_budget = int(total_budget * 0.50)   # 沙发约占 50%
-            bed_budget = int(total_budget * 0.40)     # 床+床垫约占 40%
-            table_budget = int(total_budget * 0.15)   # 配套约占 15%
+            sofa_budget, bed_budget, table_budget, bedroom_budgets = _calculate_dynamic_budget(
+                total_budget, need_sofa, need_chair, need_table, need_tv, need_dining, len(bedroom_configs)
+            )
 
             sofa_wall_cm = sofa_wall_len * 100
             sofa_min = int(sofa_wall_cm * 0.7)
@@ -1559,26 +1704,33 @@ with main_tab1:
 {table_summary}
 
 【预算分配】（客户总预算：¥{total_budget:,}）：
-- 🛋️ 沙发品类预算上限：约 ¥{sofa_budget:,}  {_relaxed_hint}
-- 🛏️ 床架+床垫品类预算上限：约 ¥{bed_budget:,}（含所有卧室）{_relaxed_hint}
-- 🪑 配套（茶几/电视柜/餐桌椅）预算上限：约 ¥{table_budget:,}  {_relaxed_hint}
-- ⚠️ 各品类预算之和不得超过总预算 ¥{total_budget:,}
+- 🛋️ 沙发品类预算参考：约 ¥{sofa_budget:,}  {_relaxed_hint}
+- 🛏️ 床架+床垫品类预算参考：约 ¥{bed_budget:,}（含所有卧室）{_relaxed_hint}
+{chr(10).join(f'  · {label}：约 ¥{amount:,}' for label, amount in bedroom_budgets) if bedroom_budgets else ''}
+- 🪑 配套（茶几/电视柜/餐桌椅）预算参考：约 ¥{table_budget:,}  {_relaxed_hint}
+- ⚠️ 以上为品类预算参考，各品类可适度调整，只要总价不超过总预算 ¥{total_budget:,} 即可
 
 【搭配规则】：
-        1. 💰 **严控预算（最高优先级）**：
+        1. 💰 **严控总预算（最高优先级）**：
            - 推荐方案总价**必须**控制在预算的 **95%~100%** 之间（即 ¥{int(total_budget*0.95):,}~¥{total_budget:,}），**严格禁止超预算**！
-           - 每个品类的总价不得超过上方【预算分配】中对应的品类预算上限。
+           - 各品类预算分配为参考值，品类之间可适当调整（如客厅预算少花点、卧室多花点），只要总价不超预算即可。
            - 如果候选产品组合超出预算，必须减少品类或选择更低价的产品/规格，直到总价不超过 ¥{total_budget:,}。
            - **必须在输出中逐项列出每个产品的价格，并在最后计算累加总价，确认不超过 ¥{total_budget:,}。**
-        2. 🛏️ **必须为每个卧室配置床架+床垫**：客户选了卧室就必须推荐对应的床和床垫，不得遗漏。
-        3. 📐 **沙发长度严格匹配**：沙发总长度必须在 **{sofa_min}~{sofa_max}cm** 之间（背景墙 {sofa_wall_len} 米的 70%~85%），不得推荐此范围之外的规格。
-        4. ✅ **严格按采购清单推荐**：只推荐客户勾选的品类，未勾选的品类不要推荐。
-        5. 💤 **融入科学睡眠理念**。
-        6. 🛌 **床垫厚度匹配**：计算睡眠总高度时使用床架标注的**床身高度**（即床架平台离地高度），搭配床垫后总高度建议 45~55cm，**非**床头靠背高度。
-        7. ⚠️ **价格必须使用候选产品中标注的真实价格**：每个产品下方标注有具体的规格价格表（如"1.5右B+3左A丨扶手翻折 → 296cm, ¥12,399"），请直接从这些数据中引用价格，**不得自行编造价格**。如候选产品中无对应规格则如实说明。
-        8. 🪑 **推荐餐桌时必须标配 4 把椅子**：配套产品中的餐台（如 PT3188T 等）必须搭配对应系列的餐椅（如 PT3188Y），且每张餐台搭配 4 把椅子计算总价。
-        9. 🎨 **色调匹配**：优先推荐与客户墙面/地面颜色同色调的产品。墙面浅色系（如奶咖色/奶油白/纯白）搭配浅色系产品，深色系墙面（太空灰/咖色护墙板）可搭配深色系产品形成层次感。地面同理。
-        10. ⛔ **超预算处理**：如果所有候选产品组合后的总价仍超过预算，请主动告知客户并给出最接近预算的方案，**不要强行凑出超预算的方案**。
+           - **重要：不要想当然地认为产品价格很高。请先查看下方候选产品中的实际价格，再判断能否搭配。候选产品中可能包含性价比款（如床架¥2,000+、床垫¥2,000+），实际总价可能低于你的预期。**
+        2. 🏷️ **按预算档次精准推荐**：顾家产品按价格分档次，请根据客户预算匹配合适档次：
+           - 🛋️ **沙发（三组合规格实际成交价）**：性价比 6000~10000元 | 中坚款 10000~17000元 | 高端款 17000元以上
+           - 🛏️ **床架**：性价比 2000~5000元 | 中坚款 5000~7000元 | 高端款 7000元以上
+           - 🛏️ **床垫**：性价比 2000~4000元 | 中坚款 4000~7000元 | 高端款 7000元以上
+           - 预算紧张时优先在**性价比款**中筛选，主卧/客厅等核心空间预算充足时可在**中坚款/高端款**中筛选。
+        3. 🛏️ **必须为每个卧室配置床架+床垫**：客户选了卧室就必须推荐对应的床和床垫，不得遗漏。
+        4. 📐 **沙发长度严格匹配**：沙发总长度必须在 **{sofa_min}~{sofa_max}cm** 之间（背景墙 {sofa_wall_len} 米的 70%~85%），不得推荐此范围之外的规格。
+        5. ✅ **严格按采购清单推荐**：只推荐【采购清单】中列出的品类，未列出的品类不要推荐。卧室配置已自动列入采购清单。
+        6. 💤 **融入科学睡眠理念**。
+        7. 🛌 **床垫厚度匹配**：计算睡眠总高度时使用床架标注的**床身高度**（即床架平台离地高度），搭配床垫后总高度建议 45~55cm，**非**床头靠背高度。
+        8. ⚠️ **价格必须使用候选产品中标注的真实价格**：每个产品下方标注有具体的规格价格表（如"1.5右B+3左A丨扶手翻折 → 296cm, ¥12,399"），请直接从这些数据中引用价格，**不得自行编造价格**。如候选产品中无对应规格则如实说明。
+        9. 🪑 **推荐餐桌时必须标配 4 把椅子**：配套产品中的餐台（如 PT3188T 等）必须搭配对应系列的餐椅（如 PT3188Y），且每张餐台搭配 4 把椅子计算总价。
+        10. 🎨 **色调匹配**：优先推荐与客户墙面/地面颜色同色调的产品。墙面浅色系（如奶咖色/奶油白/纯白）搭配浅色系产品，深色系墙面（太空灰/咖色护墙板）可搭配深色系产品形成层次感。地面同理。
+        11. ⛔ **超预算处理**：如果所有候选产品组合后的总价仍超过预算，请主动告知客户并给出最接近预算的方案，**不要强行凑出超预算的方案**。
 
 【输出结构】：
 一、空间尺寸与气场碰撞分析
@@ -1594,6 +1746,9 @@ with main_tab1:
             if need_table: items_list.append("☕ 茶几")
             if need_tv: items_list.append("📺 电视柜")
             if need_dining: items_list.append("🍽️ 餐桌椅组合")
+            # 卧室配置自动加入采购清单
+            for bd in bedroom_configs:
+                items_list.append(f"🛏️ {bd['room_name']}(床架+床垫)")
 
             user_prompt = f"""客户需求：
 - 风格：{style_pref}
@@ -1601,7 +1756,7 @@ with main_tab1:
 - 墙面：{wall_color}，地面：{floor_color}
 - **采购清单**：{'、'.join(items_list) if items_list else '无'}
 - 总预算：¥{total_budget:,}（**总价不得超过预算¥{total_budget:,}**，严格禁止超预算）
-- 品类预算分配参考：沙发≤¥{sofa_budget:,}，床架+床垫≤¥{bed_budget:,}，配套≤¥{table_budget:,}
+- 品类预算分配参考：沙发约¥{sofa_budget:,}，床架+床垫约¥{bed_budget:,}，配套约¥{table_budget:,}
 - 特殊需求：{'; '.join(special_tags)}
 - 备注：{custom_notes if custom_notes else '无'}
 - **卧室配置（必须为以下每个房间推荐床架+床垫）**：
