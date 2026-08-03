@@ -134,57 +134,85 @@ def _get_log_count():
 def _extract_price_rows(text, category, max_rows=8):
     """提取MD文件中规格-价格行，返回 (display_rows, all_prices)
     display_rows: 格式化的显示行（沙发只保留组合规格）
-    all_prices: 所有规格的真实价格列表（用于价格区间计算）"""
-    display_rows = []
-    all_prices = []
-    for line in text.split('\n'):
-        stripped = line.strip()
-        if not stripped.startswith('|') or '---' in stripped or '|--' in stripped:
+    all_prices: 所有规格的真实价格列表（用于价格区间计算）
+    
+    按优先级依次尝试多种表格区域：
+    1. ### 规格尺寸（沙发格式）
+    2. ## 床架（床架格式，含所有 ### 配色型号: 下的表格）
+    3. ## 床垫（床垫格式）
+    4. ## 配套（配套格式）"""
+    # 按品类优先级排列要尝试的章节模式
+    section_patterns = [
+        r'### 规格尺寸\s*\n(.*?)(?=\n###\s|\n##\s|\Z)',  # 沙发
+        r'## 床架\s*\n(.*?)(?=\n##\s|\Z)',                # 床架
+        r'## 床垫\s*\n(.*?)(?=\n##\s|\Z)',                # 床垫
+        r'## 配套\s*\n(.*?)(?=\n##\s|\Z)',                # 配套
+    ]
+    
+    for pattern in section_patterns:
+        spec_match = re.search(pattern, text, re.DOTALL)
+        if not spec_match:
             continue
-        parts = [p.strip() for p in stripped.split('|') if p.strip()]
-        if len(parts) < 3:
-            continue
-        # 跳过表头行
-        header_chars = ''.join(parts)
-        if re.search(r'规格|尺寸|型号|成交价|色号|组件|项目', header_chars[:15]):
-            continue
-        # 从右往左找价格列：优先找含 ¥/￥/元 的列
-        price_col = None
-        for i in range(len(parts) - 1, -1, -1):
-            cell = parts[i]
-            if re.search(r'[¥￥]', cell) or re.search(r'元', cell):
-                if re.search(r'\d{3,}', cell):
-                    price_col = i
-                    break
-        if price_col is None:
-            # 无符号标记时，从右往左找纯数字列（不含字母/×/x/cm等）
+        section_text = spec_match.group(1)
+        
+        display_rows = []
+        all_prices = []
+        for line in section_text.split('\n'):
+            stripped = line.strip()
+            if not stripped.startswith('|') or '---' in stripped or '|--' in stripped:
+                continue
+            parts = [p.strip() for p in stripped.split('|') if p.strip()]
+            if len(parts) < 3:
+                continue
+            # 跳过表头行
+            header_chars = ''.join(parts)
+            if re.search(r'规格|尺寸|型号|成交价|色号|组件|项目', header_chars[:15]):
+                continue
+            # 从右往左找价格列：优先找含 ¥/￥/元 的列
+            price_col = None
             for i in range(len(parts) - 1, -1, -1):
                 cell = parts[i]
-                if re.search(r'[a-zA-Z×xXcm/\\\\]', cell):
+                if re.search(r'[¥￥]', cell) or re.search(r'元', cell):
+                    if re.search(r'\d{3,}', cell):
+                        price_col = i
+                        break
+            if price_col is None:
+                # 无符号标记时，从右往左找纯数字列（不含字母/×/x/cm等）
+                for i in range(len(parts) - 1, -1, -1):
+                    cell = parts[i]
+                    if re.search(r'[a-zA-Z×xXcm/\\\\]', cell):
+                        continue
+                    if re.search(r'\d{3,}', cell) and i >= 1:
+                        # 确保前一列（尺寸列）包含字母或×则是组合规格行，不属于常规价格行
+                        prev = parts[i - 1] if i >= 1 else ""
+                        if re.search(r'[×xX]', prev):
+                            continue  # 前一列是尺寸（含×），本列为长度而非价格
+                        price_col = i
+                        break
+            if price_col is None:
+                continue
+            spec_name = parts[0]
+            size_col = parts[1] if len(parts) >= 2 else ""
+            raw_price = parts[price_col]
+            price_clean = raw_price.replace('¥', '').replace('￥', '').replace('元', '').replace(',', '').strip()
+            if re.match(r'^\d{3,}$', price_clean):
+                price_val = int(price_clean)
+                # 兜底：价格低于 500 的极可能是尺寸误识别，跳过
+                if price_val < 500:
                     continue
-                if re.search(r'\d{3,}', cell) and i >= 1:
-                    # 确保前一列（尺寸列）包含字母或×则是组合规格行，不属于常规价格行
-                    prev = parts[i - 1] if i >= 1 else ""
-                    if re.search(r'[×xX]', prev):
-                        continue  # 前一列是尺寸（含×），本列为长度而非价格
-                    price_col = i
-                    break
-        if price_col is None:
-            continue
-        spec_name = parts[0]
-        size_col = parts[1] if len(parts) >= 2 else ""
-        raw_price = parts[price_col]
-        price_clean = raw_price.replace('¥', '').replace('￥', '').replace('元', '').replace(',', '').strip()
-        if re.match(r'^\d{3,}$', price_clean):
-            price_val = int(price_clean)
-            all_prices.append(price_val)
-            formatted = f"{spec_name} → {size_col}, ¥{price_val:,}"
-            # 沙发只保留组合规格（含 + 号），床/床垫/配套保留所有规格
-            if category != "沙发" or '+' in spec_name:
-                display_rows.append(formatted)
-                if len(display_rows) >= max_rows:
-                    break
-    return display_rows, all_prices
+                if price_val not in all_prices:  # 去重（同价不同配色）
+                    all_prices.append(price_val)
+                formatted = f"{spec_name} → {size_col}, ¥{price_val:,}"
+                # 沙发只保留组合规格（含 + 号），床/床垫/配套保留所有规格
+                if category != "沙发" or '+' in spec_name:
+                    if formatted not in display_rows:  # 去重
+                        display_rows.append(formatted)
+                        if len(display_rows) >= max_rows:
+                            break
+        if display_rows:
+            return display_rows, all_prices
+    
+    return [], []
 
 
 def _parse_md_product(filepath, rel_path):
@@ -267,7 +295,7 @@ def _parse_md_product(filepath, rel_path):
     color_tone = _classify_color_tone(colors)
 
     # 价格：从规格价格表提取（精确可靠，替换旧的全文档正则）
-    price_rows, table_prices = _extract_price_rows(text, category, max_rows=8)
+    price_rows, table_prices = _extract_price_rows(text, category, max_rows=30)
     min_price = min(table_prices) if table_prices else 0
     max_price = max(table_prices) if table_prices else 0
 
@@ -413,6 +441,37 @@ def _parse_md_product(filepath, rel_path):
     if hb_match:
         headboard_type = hb_match.group(1).strip()
 
+    # 三好（好看 / 好舒适 / 好品质）：提取纯文本用于关键词检索
+    def _extract_section_text(text, section_name):
+        """提取 ### section_name 章节的纯文本内容（去除markdown格式）"""
+        pattern = rf'### {section_name}\s*\n(.*?)(?=\n###\s|\n##\s|\Z)'
+        match = re.search(pattern, text, re.DOTALL)
+        if not match:
+            return ""
+        content = match.group(1).strip()
+        # 去除 **粗体** 标记和 * 列表标记，保留纯文本
+        content = re.sub(r'\*\*([^*]+)\*\*', r'\1', content)
+        content = re.sub(r'^[-*]\s+', '', content, flags=re.MULTILINE)
+        return content.strip()
+
+    def _extract_section_md(text, section_name):
+        """提取 ### section_name 章节的原始 markdown 内容（用于展示）"""
+        pattern = rf'### {section_name}\s*\n(.*?)(?=\n###\s|\n##\s|\Z)'
+        match = re.search(pattern, text, re.DOTALL)
+        return match.group(1).strip() if match else ""
+
+    good_looks = _extract_section_md(text, "好看")
+    good_comfort = _extract_section_md(text, "好舒适")
+    good_quality = _extract_section_md(text, "好品质")
+    good_looks_text = _extract_section_text(text, "好看")
+    good_comfort_text = _extract_section_text(text, "好舒适")
+    good_quality_text = _extract_section_text(text, "好品质")
+
+    # 面料/填充/功能架（纯文本用于搜索）
+    fabric_text = _extract_section_text(text, "面料")
+    filling_text = _extract_section_text(text, "填充")
+    frame_text = _extract_section_text(text, "功能架")
+
     return {
         "model": model,
         "name": name,
@@ -440,11 +499,20 @@ def _parse_md_product(filepath, rel_path):
         "material": material,
         "product_config": product_config,
         "headboard_type": headboard_type,
+        "good_looks": good_looks,
+        "good_comfort": good_comfort,
+        "good_quality": good_quality,
+        "good_looks_text": good_looks_text,
+        "good_comfort_text": good_comfort_text,
+        "good_quality_text": good_quality_text,
+        "fabric_text": fabric_text,
+        "filling_text": filling_text,
+        "frame_text": frame_text,
     }
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v12_asterisk_features"):
+def build_product_index_v3(_version="v14_pricefix"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
@@ -518,6 +586,8 @@ def _digit_fuzzy_match(terms, model):
     for qd in query_digits:
         if len(qd) >= 2:  # 至少2位数字才有意义
             for md in model_digits:
+                if len(md) < 2:  # 忽略单数字（如"1"），避免"6172"误匹配含"1"的型号
+                    continue
                 # 双向子串匹配："815" in "B815" 或 "B815" in "815"（后者处理极端情况）
                 if qd in md or md in qd:
                     return True
@@ -556,13 +626,15 @@ def _match_style(user_style, product_style):
     return False
 
 
-def filter_candidates(index, category=None, max_price=None, sofa_length=None, style=None, keywords=None, min_candidates=8):
+def filter_candidates(index, category=None, max_price=None, sofa_length=None, style=None, keywords=None, min_candidates=8, fallback=True):
     """从产品索引中快速筛选候选产品
     关键词匹配策略（三级降级）：
     1. 先用关键词精确匹配，找到匹配的产品
-    2. 如果不够 min_candidates 个，再宽松补齐（同一品类下无需关键词的候选）
+    2. 如果不够 min_candidates 个且 fallback=True，再宽松补齐（同一品类下无需关键词的候选）
     3. 如果还不够，去掉预算限制补齐
-    返回：候选产品列表 + 精简摘要文本（供 LLM 使用）"""
+    返回：候选产品列表 + 精简摘要文本（供 LLM 使用）
+    
+    fallback=False 时仅返回精确匹配结果，不自动补齐。"""
     candidates = []
     fallback_pool = []
     for model, p in index.items():
@@ -585,6 +657,18 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
         match_keyword = True
         if keywords:
             terms = [t.strip().lower() for t in keywords.replace(",", " ").split() if len(t.strip()) >= 2]
+            # 中文自然语言查询增强：从连续中文中提取数字 + 2字词
+            raw_lower = keywords.lower()
+            # 提取所有数字
+            for num in re.findall(r'\d+', raw_lower):
+                if num not in terms:
+                    terms.append(num)
+            # 提取中文2字滑动窗口（如"靠背"、"高度"、"沙发"）
+            chinese_chars = re.findall(r'[\u4e00-\u9fff]', raw_lower)
+            for i in range(len(chinese_chars) - 1):
+                bigram = chinese_chars[i] + chinese_chars[i+1]
+                if bigram not in terms:
+                    terms.append(bigram)
             if terms:
                 # 扩充 haystack：整合所有已提取字段，无需手动添加关键词
                 price_text = " ".join(p.get("price_rows", []))
@@ -609,6 +693,8 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
                     f"{p.get('headboard_type','')} "
                     f"总长{p.get('bed_total_length',0)}cm 总宽{p.get('bed_head_width',0)}cm 头高{p.get('bed_head_height',0)}cm "
                     f"{p.get('color_tone','')} "
+                    f"{p.get('good_looks_text','')} {p.get('good_comfort_text','')} {p.get('good_quality_text','')} "
+                    f"{p.get('fabric_text','')} {p.get('filling_text','')} {p.get('frame_text','')} "
                 ).lower()
                 # 1) 直接子串匹配
                 if any(t in haystack for t in terms):
@@ -627,8 +713,8 @@ def filter_candidates(index, category=None, max_price=None, sofa_length=None, st
         if len(candidates) >= min_candidates:
             break
 
-    # 降级策略：关键词匹配不够时，用品类/预算内产品补齐
-    if len(candidates) < min_candidates and fallback_pool:
+    # 降级策略：仅当 fallback=True 时，关键词匹配不够时用品类/预算内产品补齐
+    if fallback and len(candidates) < min_candidates and fallback_pool:
         need = min(min_candidates - len(candidates), len(fallback_pool))
         candidates.extend(fallback_pool[:need])
 
@@ -2005,175 +2091,486 @@ with main_tab1:
 
 
 # =========================================================================
-# Tab 2：导购速查（同样使用预筛选）
+# Tab 2：导购全品类速查助手（纯本地内存检索 / 毫秒级多维筛选）
 # =========================================================================
 with main_tab2:
-    st.subheader("🔍 导购全品类速查助手（床 / 床垫 / 沙发）")
-    st.caption("⚡ 专门面向线下导购：随手输入要求，精准匹配！")
+    st.subheader("🔍 导购全品类速查助手（毫秒级本地多维检索）")
+    st.caption("⚡ 不消耗大模型 Token | 0 秒极速响应 | 支持型号、尺寸、价格、风格、系列多维精准筛选")
 
-    col_q1, col_q2 = st.columns([3, 1])
-    with col_q1:
-        guide_query = st.text_input("请输入查询条件：", placeholder="例如：1.8米皮床，推荐适配厚度22-25cm的独立弹簧护脊床垫，总预算7000内", key="guide_query_input")
-    with col_q2:
-        st.write(" "); st.write(" ")
-        search_btn = st.button("🔎 立即检索库", type="primary", use_container_width=True, disabled=st.session_state.guide_query_in_progress)
+    # --- 1. 初始化 Session State 状态（支持快捷按键与表单联动） ---
+    if "f_kw" not in st.session_state: st.session_state.f_kw = ""
+    if "f_cat" not in st.session_state: st.session_state.f_cat = "全部"
+    if "f_max_p" not in st.session_state: st.session_state.f_max_p = 50000
+    if "f_max_h" not in st.session_state: st.session_state.f_max_h = 0
+    if "f_max_blen" not in st.session_state: st.session_state.f_max_blen = 0
+    if "f_max_sofa_br" not in st.session_state: st.session_state.f_max_sofa_br = 0
+    if "f_max_bw" not in st.session_state: st.session_state.f_max_bw = 0
+    if "f_style" not in st.session_state: st.session_state.f_style = "全部"
+    if "f_tone" not in st.session_state: st.session_state.f_tone = "全部"
+    if "f_series" not in st.session_state: st.session_state.f_series = "全部"
+    if "f_do_search" not in st.session_state: st.session_state.f_do_search = False
+    if "f_auto_constraints" not in st.session_state: st.session_state.f_auto_constraints = []
+    if "f_results" not in st.session_state: st.session_state.f_results = None
+    if "f_search_ms" not in st.session_state: st.session_state.f_search_ms = 0.0
 
-    st.caption("💡 高频快捷检索：")
-    col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-    if col_e1.button("📌 床头高度低于110cm的有哪些？", disabled=st.session_state.guide_query_in_progress):
-        guide_query = "床头高度低于110cm的床架有哪些？"
-        search_btn = True
-    if col_e2.button("📌 床的长度低于215cm的有哪些？", disabled=st.session_state.guide_query_in_progress):
-        guide_query = "床的长度低于215cm的有哪些？"
-        search_btn = True
-    if col_e3.button("📌 3米左右，10000元以内的沙发有哪些？", disabled=st.session_state.guide_query_in_progress):
-        guide_query = "3米左右，10000元以内的沙发有哪些？"
-        search_btn = True
-    if col_e4.button("📌 落地款的沙发有哪些？", disabled=st.session_state.guide_query_in_progress):
-        guide_query = "落地款的沙发有哪些？"
-        search_btn = True
+    # 系列选项（从产品索引中动态收集所有已有系列）
+    _all_series = set()
+    for _p in product_index.values():
+        _s = _p.get("series", "")
+        if _s: _all_series.add(_s)
+    series_options = ["全部"] + sorted(_all_series)
 
-    st.markdown("---")
+    # --- 2. 快捷一键筛选按键栏 ---
+    st.markdown("##### 💡 导购高频快捷按键：")
+    col_k1, col_k2, col_k3, col_k4, col_k5 = st.columns(5)
+    
+    if col_k1.button("📌 床头高度 < 110cm", use_container_width=True):
+        st.session_state.f_cat = "床架"; st.session_state.f_max_h = 110
+        st.session_state.f_max_blen = 0; st.session_state.f_max_sofa_br = 0
+        st.session_state.f_max_bw = 0
+        st.session_state.f_kw = ""; st.session_state.f_series = "全部"
+        st.session_state.f_do_search = True; st.rerun()
 
-    if search_btn and guide_query:
-        if st.session_state.guide_query_in_progress:
-            st.info("⏳ 正在检索中，请耐心等待...")
-            st.stop()
-        st.session_state.guide_query_in_progress = True
-        if not api_key.startswith("sk-"):
-            st.error("❌ 请先配置 DeepSeek API Key")
-            st.session_state.guide_query_in_progress = False
-            st.stop()
+    if col_k2.button("📌 床总长 < 215cm", use_container_width=True):
+        st.session_state.f_cat = "床架"; st.session_state.f_max_blen = 215
+        st.session_state.f_max_h = 0; st.session_state.f_max_sofa_br = 0
+        st.session_state.f_max_bw = 0
+        st.session_state.f_kw = ""; st.session_state.f_series = "全部"
+        st.session_state.f_do_search = True; st.rerun()
 
-        # 记录导购查询
-        _log_query("guide_search", {"query": guide_query, "source": "quick_btn" if guide_query in [
-            "床头高度低于110cm的床架有哪些？",
-            "床的长度低于215cm的有哪些？",
-            "3米左右，10000元以内的沙发有哪些？",
-            "落地款的沙发有哪些？",
-        ] else "manual_input"})
+    if col_k3.button("📌 沙发靠背 < 80cm", use_container_width=True):
+        st.session_state.f_cat = "沙发"; st.session_state.f_max_sofa_br = 80
+        st.session_state.f_max_h = 0; st.session_state.f_max_blen = 0
+        st.session_state.f_max_bw = 0
+        st.session_state.f_kw = ""; st.session_state.f_series = "全部"
+        st.session_state.f_do_search = True; st.rerun()
 
-        # 判断是否为命名/型号解读类问题
-        if _is_naming_query(guide_query):
-            # 命名问题：直接使用命名结构文档回答，不查产品
-            naming_prompt = f"""你是一位顾家家居产品专家。用户正在询问床类产品型号的命名规则。
+    if col_k4.button("📌 价格 5000 元内", use_container_width=True):
+        st.session_state.f_max_p = 5000; st.session_state.f_kw = ""
+        st.session_state.f_max_sofa_br = 0; st.session_state.f_max_bw = 0
+        st.session_state.f_series = "全部"; st.session_state.f_do_search = True
+        st.rerun()
 
-请参考以下《卧室产品命名结构说明》文档，用通俗易懂的语言解答用户的疑问。
+    if col_k5.button("🔄 重置所有筛选", use_container_width=True):
+        st.session_state.f_kw = ""; st.session_state.f_cat = "全部"
+        st.session_state.f_max_p = 50000; st.session_state.f_max_h = 0
+        st.session_state.f_max_blen = 0; st.session_state.f_max_sofa_br = 0
+        st.session_state.f_max_bw = 0
+        st.session_state.f_style = "全部"; st.session_state.f_tone = "全部"
+        st.session_state.f_series = "全部"
+        st.session_state.f_auto_constraints = []
+        st.session_state.f_do_search = False; st.session_state.f_results = None
+        st.rerun()
 
-【命名结构文档】：
-{BED_NAMING_GUIDE}
+    # --- 3. 多维组合筛选面板 ---
+    with st.expander("🎛️ 多维组合筛选面板", expanded=True):
+        f_col1, f_col2, f_col3, f_col4 = st.columns([2, 1, 1, 1])
+        with f_col1:
+            search_kw = st.text_input(
+                "🔍 搜索关键词 / 型号 / 面料 / 色号", 
+                value=st.session_state.f_kw, 
+                placeholder="例如: 815, 悬浮床, 奶油风, 独立弹簧, 0033", 
+                key="input_search_kw"
+            )
+        with f_col2:
+            cat_options = ["全部", "沙发", "床架", "床垫", "配套"]
+            cat_idx = cat_options.index(st.session_state.f_cat) if st.session_state.f_cat in cat_options else 0
+            sel_cat = st.selectbox("品类分类", cat_options, index=cat_idx, key="input_sel_cat")
+        with f_col3:
+            style_options = ["全部", "现代简约", "温馨奶油", "意式轻奢", "极简", "法式复古", "原木风", "中古风", "新中式", "美式"]
+            style_idx = style_options.index(st.session_state.f_style) if st.session_state.f_style in style_options else 0
+            sel_style = st.selectbox("风格偏好", style_options, index=style_idx, key="input_sel_style")
+        with f_col4:
+            tone_options = ["全部", "浅色系", "深色系"]
+            tone_idx = tone_options.index(st.session_state.f_tone) if st.session_state.f_tone in tone_options else 0
+            sel_tone = st.selectbox("色调归类", tone_options, index=tone_idx, key="input_sel_tone")
 
-【用户提问】：{guide_query}
+        f_col5, f_col6, f_col7, f_col8 = st.columns(4)
+        with f_col5:
+            price_range = st.slider("最高成交价上限 (元)", min_value=1000, max_value=50000, value=st.session_state.f_max_p, step=1000, key="input_price_range")
+        with f_col6:
+            headboard_limit = st.number_input("床头高度上限 (cm, 0为不限)", min_value=0, max_value=200, value=st.session_state.f_max_h, step=5, key="input_headboard_limit")
+        with f_col7:
+            bed_len_limit = st.number_input("床总长度上限 (cm, 0为不限)", min_value=0, max_value=260, value=st.session_state.f_max_blen, step=5, key="input_bed_len_limit")
+        with f_col8:
+            sort_order = st.selectbox("结果排序方式", ["价格从低到高", "价格从高到低", "型号名称排序"], key="input_sort_order")
 
-【输出要求】：
-1. 用简明清晰的语言解释命名规则
-2. 如果用户提到了具体型号（如 FQ1PQ4），请按文档解析该型号的各段位含义
-3. 如果用户没有具体型号，用文档中的示例（如 ZX.B712PQ7）来演示如何解读
-4. 让导购能看懂并能快速向客户解释"""
-            try:
-                result_placeholder = st.empty()
-                full_result = ""
-                for chunk in stream_response(api_key, model_name, naming_prompt, f"用户问题：{guide_query}"):
-                    full_result += chunk
-                    result_placeholder.markdown(re.sub(r'~~', '', full_result) + "▌")
-                result_placeholder.markdown(re.sub(r'~~', '', full_result))
-            except Exception as e:
-                st.error(f"❌ 检索失败: {e}")
+        f_col9, f_col10, f_col11, f_col12 = st.columns([1, 1, 1, 1])
+        with f_col9:
+            series_idx = series_options.index(st.session_state.f_series) if st.session_state.f_series in series_options else 0
+            sel_series = st.selectbox("产品系列", series_options, index=series_idx, key="input_sel_series")
+        with f_col10:
+            sofa_br_limit = st.number_input("沙发靠背高度上限 (cm, 0为不限)", min_value=0, max_value=150, value=st.session_state.f_max_sofa_br, step=5, key="input_sofa_br_limit")
+        with f_col11:
+            bed_width_limit = st.number_input("床头宽度上限 (cm, 0为不限)", min_value=0, max_value=300, value=st.session_state.f_max_bw, step=5, key="input_bed_width_limit")
+
+        # --- 查询按钮 ---
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        with col_btn2:
+            if st.button("🔍 开始查询", type="primary", use_container_width=True):
+                # 将表单值同步到 session_state
+                st.session_state.f_kw = search_kw
+                st.session_state.f_cat = sel_cat
+                st.session_state.f_max_p = price_range
+                st.session_state.f_max_h = headboard_limit
+                st.session_state.f_max_blen = bed_len_limit
+                st.session_state.f_max_sofa_br = sofa_br_limit
+                st.session_state.f_max_bw = bed_width_limit
+                st.session_state.f_style = sel_style
+                st.session_state.f_tone = sel_tone
+                st.session_state.f_series = sel_series
+                st.session_state.f_do_search = True
+                st.rerun()
+
+    # 可选：卧室产品命名结构解读
+    if BED_NAMING_GUIDE:
+        with st.expander("📖 查看《顾家床类产品型号与命名结构解读指南》", expanded=False):
+            st.markdown(BED_NAMING_GUIDE)
+
+    # --- 4. 纯 Python 毫秒级本地检索逻辑（仅当点击查询按钮后执行） ---
+    if st.session_state.f_do_search:
+        st.session_state.f_do_search = False
+        t_search_start = time.time()
+
+        # 从 session_state 读取筛选条件（确保与按钮/表单一致）
+        _cat = None if st.session_state.f_cat == "全部" else st.session_state.f_cat
+        _max_p = st.session_state.f_max_p if st.session_state.f_max_p < 50000 else None
+        _style = None if st.session_state.f_style == "全部" else st.session_state.f_style
+        _kw = st.session_state.f_kw
+        _tone = st.session_state.f_tone
+        _series = st.session_state.f_series
+        _h_limit = st.session_state.f_max_h
+        _blen_limit = st.session_state.f_max_blen
+        _sofa_br_limit = st.session_state.f_max_sofa_br
+        _bw_limit = st.session_state.f_max_bw
+
+        # ====== 自然语言约束自动提取：从搜索文本中解析数值约束 ======
+        # 当用户输入如"沙发靠背高度低于80cm的有哪些？"时，自动提取约束
+        _constraint_extracted = False  # 标记是否从自然语言中提取了数值约束
+        if _kw and _kw.strip():
+            _kw_lower = _kw.lower()
+            _kw_numbers = [int(n) for n in re.findall(r'\d+', _kw_lower) if int(n) > 0]
+
+            # --- 品类自动识别 ---
+            # 优先级：沙发 > 床垫 > 床架 > 配套
+            if _cat is None:  # 仅当品类为"全部"时自动识别
+                if "沙发" in _kw_lower:
+                    _cat = "沙发"
+                elif "床垫" in _kw_lower:
+                    _cat = "床垫"
+                elif any(kw in _kw_lower for kw in ["床架", "床长", "床总长", "床头", "床的长度", "床的", "床头宽度", "床头宽", "床宽度"]):
+                    _cat = "床架"
+                elif "配套" in _kw_lower or "茶几" in _kw_lower or "餐桌" in _kw_lower:
+                    _cat = "配套"
+
+            # --- 1) 沙发靠背高度约束（靠背高度/沙发靠背/靠背高） ---
+            if any(kw in _kw_lower for kw in ["靠背高度", "沙发靠背", "靠背高"]):
+                for pat in [r'(?:低于|小于|<|≤|不大于|不超过|以内)\s*(\d+)',
+                            r'(\d+)\s*(?:cm|厘米)\s*(?:以下|以内|及以下)',
+                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以下|以内|及以下)']:
+                    m = re.search(pat, _kw_lower)
+                    if m:
+                        val = int(m.group(1))
+                        if 20 <= val <= 150:
+                            _sofa_br_limit = val
+                            _constraint_extracted = True
+                            break
+                # 如果没找到"低于"类关键词，取第一个合理数字作为上限
+                if _sofa_br_limit == 0 and _kw_numbers:
+                    for n in _kw_numbers:
+                        if 20 <= n <= 150:
+                            _sofa_br_limit = n
+                            _constraint_extracted = True
+                            break
+
+            # --- 2) 床头高度约束（床头高度/床头高/头高） ---
+            if any(kw in _kw_lower for kw in ["床头高度", "床头高", "头高"]):
+                for pat in [r'(?:低于|小于|<|≤|不大于|不超过|以内)\s*(\d+)',
+                            r'(\d+)\s*(?:cm|厘米)\s*(?:以下|以内|及以下)',
+                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以下|以内|及以下)']:
+                    m = re.search(pat, _kw_lower)
+                    if m:
+                        val = int(m.group(1))
+                        if 20 <= val <= 200:
+                            _h_limit = val
+                            _constraint_extracted = True
+                            break
+                if _h_limit == 0 and _kw_numbers:
+                    for n in _kw_numbers:
+                        if 20 <= n <= 200:
+                            _h_limit = n
+                            _constraint_extracted = True
+                            break
+
+            # --- 3) 床总长度约束（床长/床长度/总长/床总长） ---
+            if any(kw in _kw_lower for kw in ["床长", "床长度", "总长", "床总长"]):
+                for pat in [r'(?:低于|小于|<|≤|不大于|不超过|以内)\s*(\d+)',
+                            r'(\d+)\s*(?:cm|厘米)\s*(?:以下|以内|及以下)',
+                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以下|以内|及以下)']:
+                    m = re.search(pat, _kw_lower)
+                    if m:
+                        val = int(m.group(1))
+                        if 100 <= val <= 260:
+                            _blen_limit = val
+                            _constraint_extracted = True
+                            break
+                if _blen_limit == 0 and _kw_numbers:
+                    for n in _kw_numbers:
+                        if 100 <= n <= 260:
+                            _blen_limit = n
+                            _constraint_extracted = True
+                            break
+
+            # --- 4) 床头宽度约束（床头宽度/床头宽/宽度/床宽） ---
+            if any(kw in _kw_lower for kw in ["床头宽度", "床头宽", "床宽度", "床的宽度"]):
+                for pat in [r'(?:低于|小于|<|≤|不大于|不超过|以内)\s*(\d+)',
+                            r'(\d+)\s*(?:cm|厘米)\s*(?:以下|以内|及以下)',
+                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以下|以内|及以下)']:
+                    m = re.search(pat, _kw_lower)
+                    if m:
+                        val = int(m.group(1))
+                        if 50 <= val <= 300:
+                            _bw_limit = val
+                            _constraint_extracted = True
+                            break
+                if _bw_limit == 0 and _kw_numbers:
+                    for n in _kw_numbers:
+                        if 50 <= n <= 300:
+                            _bw_limit = n
+                            _constraint_extracted = True
+                            break
+
+        # 如果从自然语言中提取了约束，将关键词简化为品类名
+        # 避免完整中文句子（如"床头宽度小于150cm的床有哪些"）传入 filter_candidates 导致匹配失败
+        if _constraint_extracted and _kw:
+            # 检查是否包含自然语言特征（中文句式，非简单关键词）
+            if any(pat in _kw for pat in ["有哪些", "的有哪些", "哪些", "低于", "小于", "不超过", "以内"]):
+                _kw = _cat if _cat else ""
+
+        # 过滤出符合条件的候选产品（fallback=False 只返回精确匹配，不补齐）
+        matched_products, _ = filter_candidates(
+            product_index,
+            category=_cat,
+            max_price=_max_p,
+            style=_style,
+            keywords=_kw,
+            min_candidates=99999,
+            fallback=False
+        )
+
+        # 二级精准属性过滤（色调、系列、床头高、床长、沙发靠背高）
+        final_results = []
+        for p in matched_products:
+            if _tone != "全部" and p.get("color_tone") != _tone:
+                continue
+            if _series != "全部" and p.get("series", "") != _series:
+                continue
+            if _h_limit > 0:
+                h_height = p.get("bed_head_height", 0)
+                if h_height > 0 and h_height > _h_limit:
+                    continue
+            if _blen_limit > 0:
+                b_len = p.get("bed_total_length", 0)
+                if b_len > 0 and b_len > _blen_limit:
+                    continue
+            if _sofa_br_limit > 0:
+                sofa_dims = p.get("sofa_dimensions", {})
+                br = sofa_dims.get("靠背高度", 0)
+                if br > 0 and br > _sofa_br_limit:
+                    continue
+            if _bw_limit > 0:
+                bw = p.get("bed_head_width", 0)
+                if bw > 0 and bw > _bw_limit:
+                    continue
+            final_results.append(p)
+
+        # 排序
+        _sort = sort_order  # 使用当前表单的排序方式
+        if _sort == "价格从低到高":
+            final_results.sort(key=lambda x: x.get("min_price", 0))
+        elif _sort == "价格从高到低":
+            final_results.sort(key=lambda x: x.get("min_price", 0), reverse=True)
+        elif _sort == "型号名称排序":
+            final_results.sort(key=lambda x: x.get("model", ""))
+
+        t_search_end = time.time()
+        st.session_state.f_search_ms = (t_search_end - t_search_start) * 1000
+        st.session_state.f_results = final_results
+
+        # 持久化自然语言约束提取信息，供结果显示使用
+        _auto_constraints = []
+        if st.session_state.f_kw and st.session_state.f_kw.strip():
+            _orig_cat = None if st.session_state.f_cat == "全部" else st.session_state.f_cat
+            if _cat != _orig_cat:
+                _auto_constraints.append(f"品类: {_cat}")
+            if _sofa_br_limit != st.session_state.f_max_sofa_br and _sofa_br_limit > 0:
+                _auto_constraints.append(f"沙发靠背高度 ≤ {_sofa_br_limit}cm")
+            if _h_limit != st.session_state.f_max_h and _h_limit > 0:
+                _auto_constraints.append(f"床头高度 ≤ {_h_limit}cm")
+            if _blen_limit != st.session_state.f_max_blen and _blen_limit > 0:
+                _auto_constraints.append(f"床总长度 ≤ {_blen_limit}cm")
+            if _bw_limit != st.session_state.f_max_bw and _bw_limit > 0:
+                _auto_constraints.append(f"床头宽度 ≤ {_bw_limit}cm")
+        st.session_state.f_auto_constraints = _auto_constraints
+
+        # 记录导购查询日志
+        if _kw:
+            _log_query("fast_local_search", {"kw": _kw, "cat": st.session_state.f_cat, "count": len(final_results)})
+
+    # --- 5. 结果展示（直观卡片 + 对应图片） ---
+    if st.session_state.f_results is not None:
+        final_results = st.session_state.f_results
+        search_ms = st.session_state.f_search_ms
+
+        st.markdown("---")
+        st.markdown(f"### 📦 检索结果 (⚡ 共找到 **{len(final_results)}** 款产品，耗时 **{search_ms:.2f}** 毫秒)")
+
+        # 显示自然语言约束自动提取反馈
+        if st.session_state.get("f_auto_constraints"):
+            st.info(f"🔍 从搜索文本自动识别约束: {' · '.join(st.session_state.f_auto_constraints)}")
+
+        if not final_results:
+            st.warning("⚠️ 没有找到符合条件的产品，请尝试放大价格范围或重置筛选条件。")
         else:
-            # 产品检索：从查询中提取关键词和预算
-            budget_match = re.search(r'(\d{4,})\s*元|\d{4,}\s*以内|\d{4,}\s*内|预算(\d{4,})', guide_query)
-            max_price = int(budget_match.group(1) or budget_match.group(2) or 0) if budget_match else None
+            for p in final_results:
+                model = p.get("model", "")
+                name = p.get("name", "")
+                cat = p.get("category", "")
+                min_p = p.get("min_price", 0)
+                max_p = p.get("max_price", 0)
+                tagline = p.get("tagline", "")
+                series = p.get("series", "")
 
-            kw = ""
-            if "床垫" in guide_query:
-                kw = "床垫"
-            elif "床" in guide_query or "软体床" in guide_query:
-                kw = "床架"
-            elif "沙发" in guide_query:
-                kw = "沙发"
+                # 卡片标题
+                card_title = f"【{cat}】{model} {name} | 价格: ¥{min_p:,} ~ ¥{max_p:,}"
+                if tagline:
+                    card_title += f" | {tagline[:30]}"
 
-            cat_map = {"床垫": "床垫", "床架": "床架", "沙发": "沙发"}
-            category = cat_map.get(kw)
+                with st.expander(card_title, expanded=True):
+                    col_info, col_imgs = st.columns([1.1, 1], gap="medium")
 
-            # 提取有意义的搜索关键词（而非直接用完整中文句子，避免匹配失败）
-            # 因为产品的 haystack 包含的是单个关键词/数值，不包含完整问句
-            search_kw = ""
-            # 1) 产品类型关键词（用已识别的 kw 确保准确）
-            if kw:
-                search_kw += kw + " "
-            # 2) 提取数字/型号关键词
-            model_patterns = re.findall(r'[A-Za-z]{1,4}\.?\d{2,4}[A-Za-z0-9]*|\d{2,}', guide_query)
-            if model_patterns:
-                search_kw += " ".join(model_patterns) + " "
-            # 3) 提取属性关键词（落地、高脚、风格等）
-            for attr_kw in ["落地", "高脚", "皮床", "布床", "意式", "现代", "简约", "轻奢", "奶油", "极简",
-                            "护脊", "独立弹簧", "静音", "真皮", "科技布", "软体", "悬浮", "智能"]:
-                if attr_kw in guide_query:
-                    search_kw += attr_kw + " "
-            # 4) 色系关键词补充
-            if "浅色" in guide_query:
-                search_kw += "浅色 "
-            if "深色" in guide_query:
-                search_kw += "深色 "
-            if "浅色系" in guide_query or "浅色调" in guide_query:
-                search_kw += "浅色系 "
-            if "深色系" in guide_query or "深色调" in guide_query:
-                search_kw += "深色系 "
-            search_kw = search_kw.strip()
-            candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw, min_candidates=999)
+                    # 左侧：详细属性与规格
+                    with col_info:
+                        st.markdown(f"#### 📌 {model} {name}")
+                        st.markdown(f"**品类**: `{cat}` | **系列**: `{series if series else '标准'}` | **风格**: `{p.get('design_style', '通用')}`")
+                        st.markdown(f"**色调**: `{p.get('color_tone', '深色系')}` | **可选配色**: {', '.join(p.get('colors', [])) if p.get('colors') else '详见出样色'}")
 
-            # 如果查询中包含型号字样（如 B815PQ1），同时提供命名解读作为参考
-            naming_context = ""
-            if re.search(r'[A-Z]{1,3}\.?\d{3,}', guide_query):
-                naming_context = f"\n\n【参考 - 床型号命名规则】\n当客户问起型号含义时，可参考以下规则解析：\n" + BED_NAMING_GUIDE[:1500]
+                        # 一句话价值塑造
+                        if p.get("tagline"):
+                            st.markdown(f"> 💬 *{p['tagline']}*")
 
-            guide_prompt = f"""你是一位精准的家居与睡眠产品检索助手。**以下列出了所有符合条件的候选产品**，请逐一列出并说明。如无合适产品则如实说明。
+                        # 三好信息（可折叠）
+                        has_goods = p.get("good_looks") or p.get("good_comfort") or p.get("good_quality")
+                        if has_goods:
+                            with st.expander("🌟 三好卖点（好看 · 好舒适 · 好品质）", expanded=False):
+                                if p.get("good_looks"):
+                                    st.markdown("**🎨 好看**")
+                                    st.markdown(p["good_looks"])
+                                if p.get("good_comfort"):
+                                    st.markdown("**🛋️ 好舒适**")
+                                    st.markdown(p["good_comfort"])
+                                if p.get("good_quality"):
+                                    st.markdown("**🔧 好品质**")
+                                    st.markdown(p["good_quality"])
 
-【所有候选产品】：
-{summary}
+                        # 核心卖点
+                        if p.get("features"):
+                            st.markdown("**核心卖点**:")
+                            for ft in p["features"]:
+                                st.markdown(f"- {ft}")
 
-【导购要求】：{guide_query}{naming_context}
+                        # 分品类尺寸属性展示
+                        if cat == "沙发":
+                            if p.get("lengths"):
+                                st.markdown(f"**组合可选长度(cm)**: {', '.join(str(l) for l in p['lengths'])}")
+                            if p.get("sofa_dimensions"):
+                                dims = p["sofa_dimensions"]
+                                dim_str = " | ".join(f"{k}: {v}cm" for k, v in dims.items())
+                                st.markdown(f"**尺寸详解**: {dim_str}")
+                            if p.get("sofa_components"):
+                                comps = p["sofa_components"]
+                                comp_str = " | ".join(f"{k}: {v}cm" for k, v in comps.items())
+                                st.markdown(f"**组件尺寸**: {comp_str}")
 
-【输出要求】：
-1. **列出所有候选产品**，逐一说明每个产品的型号、规格、成交价和推荐理由。
-2. **必须使用候选产品中标注的真实价格**（每个产品下方都有具体的规格价格表），不得自行编造。
-3. 涉及床+床垫搭配时说明高度适配性：使用床架标注的**床身高度**（平台离地高）搭配床垫，总睡眠高度建议 45~55cm，**非**床头靠背高度。
-4. 涉及餐桌时，必须搭配 4 把同系列餐椅计算总价。"""
+                        elif cat == "床架":
+                            if p.get("bed_total_length") or p.get("bed_head_width") or p.get("bed_head_height"):
+                                st.markdown(f"**外尺寸(cm)**: 总长 `{p.get('bed_total_length',0)}` | 床头宽 `{p.get('bed_head_width',0)}` | 床头高 `{p.get('bed_head_height',0)}`")
+                            # 提取所有可选规格，展示可选尺寸范围
+                            if p.get("price_rows"):
+                                all_specs = []
+                                for pr in p["price_rows"]:
+                                    spec = pr.split(" → ")[0] if " → " in pr else ""
+                                    if spec and spec not in all_specs:
+                                        all_specs.append(spec)
+                                if all_specs:
+                                    st.markdown(f"**可选规格(内径)**: {', '.join(all_specs)}")
+                            if p.get("bed_frame_height"):
+                                st.markdown(f"**床身离地高**: `{p.get('bed_frame_height')}cm` | **适配床垫厚度**: `{p.get('mattress_thickness', '常规')}`")
+                            if p.get("headboard_type"):
+                                st.markdown(f"**靠包类型**: `{p.get('headboard_type')}`")
 
-            try:
-                result_placeholder = st.empty()
-                full_result = ""
-                for chunk in stream_response(api_key, model_name, guide_prompt, f"导购检索：{guide_query}"):
-                    full_result += chunk
-                    result_placeholder.markdown(re.sub(r'~~', '', full_result) + "▌")
-                result_placeholder.markdown(re.sub(r'~~', '', full_result))
+                        elif cat in ("床垫", "配套"):
+                            if p.get("material"):
+                                st.markdown(f"**面料/材质**: {p.get('material')}")
+                            if p.get("product_config"):
+                                st.markdown(f"**产品配置**: {p.get('product_config')}")
 
-                st.markdown("---")
-                st.markdown("### 🖼️ 匹配产品图片")
-                # 用候选产品列表精确匹配图片，而非从 AI 文本中模糊提取
-                candidate_models = set(p.get("model", "").upper() for p in candidates)
-                display_count = 0
-                for folder_key, img_dict in images_db.items():
-                    # 检查 folder_key 是否匹配任何候选产品型号
-                    fk_upper = folder_key.upper()
-                    if any(m in fk_upper or fk_upper in m for m in candidate_models if len(m) >= 4):
-                        display_count += 1
-                        st.markdown(f"#### 📦 {folder_key}")
-                        tab_cat, tab_scene, tab_home = st.tabs(["📦 规格/浏览图", "🏡 展厅/场景效果图", "📸 客户入户实景图"])
-                        for tab_name, img_key in [("cat", "catalog_images"), ("scene", "scene_images"), ("home", "home_images")]:
-                            with [tab_cat, tab_scene, tab_home][["cat", "scene", "home"].index(tab_name)]:
-                                imgs = img_dict.get(img_key, []) or (img_dict.get("real_images", []) if img_key == "home_images" else [])
-                                if imgs:
-                                    for i in range(0, len(imgs), 3):
-                                        cols = st.columns(3)
-                                        for j, img_p in enumerate(imgs[i:i+3]):
-                                            with cols[j]:
-                                                st.image(img_p, use_container_width=True)
+                        # 规格与成交价明细表
+                        if p.get("price_rows"):
+                            st.markdown("**📋 规格与成交价明细**:")
+                            # 构建markdown表格
+                            table_lines = ["| 规格 | 尺寸 | 成交价 |", "|------|------|-------:|"]
+                            for pr in p["price_rows"]:
+                                # 格式: "201*121 → 206×121×31, ¥2,599"
+                                parts = pr.split(" → ", 1)
+                                if len(parts) == 2:
+                                    spec = parts[0]
+                                    rest = parts[1]
+                                    # 拆出尺寸和价格
+                                    price_match = re.search(r'(.*), (¥[\d,]+)', rest)
+                                    if price_match:
+                                        size = price_match.group(1)
+                                        price = price_match.group(2)
+                                        table_lines.append(f"| {spec} | {size} | {price} |")
+                                    else:
+                                        table_lines.append(f"| {spec} | {rest} | |")
                                 else:
-                                    st.info({"cat": "暂无规格/浏览图", "scene": "暂无展厅/场景效果图", "home": "📸 暂无客户入户实景图"}[tab_name])
-                if display_count == 0:
-                    st.info("💡 提示：未能匹配到图片。")
-            except Exception as e:
-                st.error(f"❌ 检索失败: {e}")
-            finally:
-                st.session_state.guide_query_in_progress = False
+                                    table_lines.append(f"| {pr} | | |")
+                            st.markdown("\n".join(table_lines))
+
+                    # 右侧：精准匹配本地图片库
+                    with col_imgs:
+                        matching_img_dict = None
+                        model_upper = model.upper()
+                        for fk, idict in images_db.items():
+                            if model_upper in fk.upper() or fk.upper() in model_upper:
+                                matching_img_dict = idict
+                                break
+
+                        if matching_img_dict:
+                            t_cat, t_scene, t_home = st.tabs(["📦 规格图", "🏡 展厅效果图", "📸 客户实景图"])
+                            with t_cat:
+                                c_imgs = matching_img_dict.get("catalog_images", [])
+                                if c_imgs:
+                                    for img_p in c_imgs[:2]:
+                                        st.image(img_p, use_container_width=True)
+                                else:
+                                    st.info("暂无规格图")
+                            with t_scene:
+                                s_imgs = matching_img_dict.get("scene_images", [])
+                                if s_imgs:
+                                    for img_p in s_imgs[:2]:
+                                        st.image(img_p, use_container_width=True)
+                                else:
+                                    st.info("暂无展厅效果图")
+                            with t_home:
+                                h_imgs = matching_img_dict.get("home_images", []) or matching_img_dict.get("real_images", [])
+                                if h_imgs:
+                                    for img_p in h_imgs[:2]:
+                                        st.image(img_p, use_container_width=True)
+                                else:
+                                    st.info("暂无客户实景图")
+                        else:
+                            st.info("💡 暂无本地匹配图片")
+    else:
+        st.info("👆 请设置筛选条件后点击「🔍 开始查询」按钮，或使用上方快捷按键一键检索。")
