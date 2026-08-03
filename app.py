@@ -212,7 +212,7 @@ def _parse_md_product(filepath, rel_path):
             in_features = True
             continue
         if in_features:
-            if line.strip().startswith("- "):
+            if line.strip().startswith(("- ", "* ")):
                 features.append(line.strip()[2:])
             elif line.strip() == "":
                 if features:
@@ -444,7 +444,7 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v11_bed_dims"):
+def build_product_index_v3(_version="v12_asterisk_features"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
