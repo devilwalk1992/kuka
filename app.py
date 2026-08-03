@@ -1239,24 +1239,20 @@ def _generate_quote_pdf():
     candidates = st.session_state.get("quote_candidates", {})
     report = st.session_state.get("current_report", "")
 
-    # 注册中文字体 - 按优先级尝试可用字体
+    # 注册中文字体 - 优先使用纯 TTF 字体（TTC 集合字体子集化有问题）
     cjk_font_path = None
-    CJK_BOLD_PATH = None
-    # 方案1: 使用 msyh.ttc (微软雅黑, TTC 集合, index 0=常规, 1=粗体)
-    if os.path.exists("C:/Windows/Fonts/msyh.ttc"):
-        cjk_font_path = "C:/Windows/Fonts/msyh.ttc"
-        if os.path.exists("C:/Windows/Fonts/msyhbd.ttc"):
-            CJK_BOLD_PATH = "C:/Windows/Fonts/msyhbd.ttc"
-    # 方案2: 使用 simsun.ttc (宋体)
-    if not cjk_font_path and os.path.exists("C:/Windows/Fonts/simsun.ttc"):
-        cjk_font_path = "C:/Windows/Fonts/simsun.ttc"
-        CJK_BOLD_PATH = None  # simsun 没有粗体，用 same font fallback
-    # 方案3: 使用 simfang.ttf (仿宋, TTF 格式最可靠)
+    # 方案1: 使用 simhei.ttf (黑体, 纯 TTF, 最稳定)
+    if os.path.exists("C:/Windows/Fonts/simhei.ttf"):
+        cjk_font_path = "C:/Windows/Fonts/simhei.ttf"
+    # 方案2: 使用 simfang.ttf (仿宋, 纯 TTF)
     if not cjk_font_path and os.path.exists("C:/Windows/Fonts/simfang.ttf"):
         cjk_font_path = "C:/Windows/Fonts/simfang.ttf"
-    # 方案4: 使用 simhei.ttf (黑体, 纯 TTF)
-    if not cjk_font_path and os.path.exists("C:/Windows/Fonts/simhei.ttf"):
-        cjk_font_path = "C:/Windows/Fonts/simhei.ttf"
+    # 方案3: 使用 msyh.ttc (微软雅黑, TTC, 需 uni=True)
+    if not cjk_font_path and os.path.exists("C:/Windows/Fonts/msyh.ttc"):
+        cjk_font_path = "C:/Windows/Fonts/msyh.ttc"
+    # 方案4: 使用 simsun.ttc (宋体, TTC)
+    if not cjk_font_path and os.path.exists("C:/Windows/Fonts/simsun.ttc"):
+        cjk_font_path = "C:/Windows/Fonts/simsun.ttc"
 
     # 从 AI 报告中提取推荐产品
     recommended_products = _get_recommended_products(candidates, report, images_db)
@@ -1292,25 +1288,12 @@ def _generate_quote_pdf():
 
     # 创建 PDF
     class QuotePDF(FPDF):
-        def __init__(self, font_path, bold_path=None):
+        def __init__(self, font_path):
             super().__init__()
             self.font_path = font_path
             if font_path:
-                # 判断是否为 TTC 集合字体
-                is_ttc = font_path.lower().endswith(".ttc")
-                if is_ttc:
-                    # TTC 集合字体: collection_font_number=0 为常规
-                    self.add_font("CJK", "", font_path, collection_font_number=0)
-                    if bold_path and os.path.exists(bold_path):
-                        # 有独立的粗体 TTC 文件
-                        self.add_font("CJK", "B", bold_path, collection_font_number=0)
-                    else:
-                        # 用同一个 TTC 的 index 1 或 index 0 作为粗体
-                        self.add_font("CJK", "B", font_path, collection_font_number=1)
-                else:
-                    # TTF 字体: 直接添加
-                    self.add_font("CJK", "", font_path)
-                    self.add_font("CJK", "B", font_path)
+                self.add_font("CJK", "", font_path)
+                self.add_font("CJK", "B", font_path)
 
         def header(self):
             if self.font_path:
@@ -1337,12 +1320,12 @@ def _generate_quote_pdf():
             self.set_text_color(148, 163, 184)
             self.cell(0, 10, f"\u7b2c {self.page_no()} \u9875 / \u5171 {{nb}} \u9875", align="C")
 
-    pdf = QuotePDF(cjk_font_path, CJK_BOLD_PATH)
+    pdf = QuotePDF(cjk_font_path)
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
 
-    def cjk(text, bold=False, size=9):
+    def cjk(text="", bold=False, size=9):
         """使用 CJK 字体或 Helvetica 书写中文"""
         if cjk_font_path:
             pdf.set_font("CJK", "B" if bold else "", size)
@@ -1378,7 +1361,7 @@ def _generate_quote_pdf():
     pdf.set_text_color(100, 116, 139)
     pdf.cell(25, 5, "\u9884\u7b97\u533a\u95f4:", new_x="END")
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(0, 5, f"\u00a5{budget:,} \u5143", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 5, f"\uffe5{budget:,} \u5143", new_x="LMARGIN", new_y="NEXT")
 
     if bedroom_detail:
         pdf.set_x(14)
@@ -1452,8 +1435,8 @@ def _generate_quote_pdf():
         pdf.cell(col_w[0], 7, str(i), border=1, align="C", fill=True)
         pdf.cell(col_w[1], 7, subtitle[:30], border=1, fill=True)
         pdf.cell(col_w[2], 7, str(p["quantity"]), border=1, align="C", fill=True)
-        pdf.cell(col_w[3], 7, f"\u00a5{p['price']:,}", border=1, align="R", fill=True)
-        pdf.cell(col_w[4], 7, f"\u00a5{subtotal:,}", border=1, align="R", fill=True)
+        pdf.cell(col_w[3], 7, f"\uffe5{p['price']:,}", border=1, align="R", fill=True)
+        pdf.cell(col_w[4], 7, f"\uffe5{subtotal:,}", border=1, align="R", fill=True)
         pdf.ln()
         fill = not fill
 
@@ -1465,7 +1448,7 @@ def _generate_quote_pdf():
     else:
         pdf.set_font("Helvetica", "B", 14)
     pdf.set_text_color(220, 38, 38)
-    pdf.cell(0, 10, f"\u5408\u8ba1:  \u00a5{total_price:,}.00", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, f"\u5408\u8ba1:  \uffe5{total_price:,}.00", align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(10)
 
     # --- 签署区 ---
