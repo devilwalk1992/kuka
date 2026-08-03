@@ -838,6 +838,31 @@ def _format_candidates_summary(candidates_dict):
     return "\n\n".join(parts)
 
 
+def _format_candidates_summary_compact(candidates_dict):
+    """精简版候选产品摘要（仅型号/名称/价格/核心规格），用于微调 Prompt 避免超 token"""
+    cat_names = {"沙发": "沙发", "床架": "床架", "床垫": "床垫", "配套": "配套"}
+    parts = []
+    for cat_key, cat_label in cat_names.items():
+        products = candidates_dict.get(cat_key, [])
+        if not products:
+            parts.append(f"【{cat_label}】: 无")
+            continue
+        lines = []
+        for p in products:
+            line = f"- {p.get('model', '?')} {p.get('name', '?')} | ¥{p.get('min_price', 0):,}~¥{p.get('max_price', 0):,}"
+            if p.get("lengths"):
+                line += f" | 长度: {', '.join(str(l) for l in p['lengths'][:3])}cm"
+            if p.get("specs"):
+                line += f" | {', '.join(p['specs'][:2])}"
+            if p.get("colors"):
+                line += f" | {'/'.join(p['colors'][:2])}"
+            if p.get("material"):
+                line += f" | {p['material'][:30]}"
+            lines.append(line)
+        parts.append(f"【{cat_label}】({len(lines)}款):\n" + "\n".join(lines))
+    return "\n\n".join(parts)
+
+
 def _get_recommended_products(candidates, report, images_db):
     """从候选产品中筛选出 AI 报告中推荐的产品，并分配正确数量"""
     recommended_models = _extract_recommended_models(report)
@@ -1933,12 +1958,18 @@ with main_tab1:
                     _candidates = st.session_state.get("quote_candidates", {})
                     _form = st.session_state.get("quote_form_data", {})
                     _total_budget = _form.get("budget", 0)
+                    # 安全检查：候选产品数据为空时给出明确提示
+                    _has_products = any(len(v) > 0 for v in _candidates.values())
+                    if not _has_products:
+                        st.error("❌ 候选产品数据已丢失（可能页面已刷新）。请重新生成方案后再进行微调。")
+                        st.session_state.refine_in_progress = False
+                        st.stop()
                     # 计算沙发长度约束
                     _sofa_wall_cm = _form.get("sofa_wall_len", 0) * 100
                     _sofa_min = int(_sofa_wall_cm * 0.7)
                     _sofa_max = int(_sofa_wall_cm * 0.85)
-                    # 生成候选产品摘要
-                    _candidates_text = _format_candidates_summary(_candidates)
+                    # 生成候选产品摘要（精简版，避免超 token）
+                    _candidates_text = _format_candidates_summary_compact(_candidates)
                     # 组装完整的微调 Prompt（必须包含候选产品数据，防止 AI 编造价格/型号）
                     edit_prompt = f"""你是一位顶级的家居软装与健康睡眠主理人。**严格仅从下方精选候选产品中**为客户搭配方案，不得推荐列表之外的产品。
 
@@ -1959,7 +1990,8 @@ with main_tab1:
 2. ⚠️ **价格必须使用候选产品中标注的真实价格**，不得自行编造。任何候选产品未列出的价格均为无效。
 3. 📐 **沙发长度约束**：如果涉及沙发，总长度必须在 {_sofa_min}~{_sofa_max}cm 之间。
 4. 💰 **总价控制**：推荐方案总价不得超过预算 ¥{_total_budget:,}，必须在输出中逐项列出价格并累加确认。
-5. 输出格式与原方案一致，保留完整报告结构（尺寸分析、产品清单、价格汇总、睡眠建议等）。"""
+5. 🔄 **预算调整规则**：客户要求调整预算分配时（如"主卧降到13000"），必须从候选产品中重新选择符合新预算的产品，而不是拒绝或返回空方案。候选产品中低价格区间的产品完全可以在新预算下完成搭配。
+6. 输出格式与原方案一致，保留完整报告结构（尺寸分析、产品清单、价格汇总、睡眠建议等）。"""
                     try:
                         st.info("🤖 AI 正在根据您的意见调整方案...")
                         new_report = st.write_stream(stream_response(api_key, model_name, edit_prompt, f"客户修改意见：{edit_instruction}"))
