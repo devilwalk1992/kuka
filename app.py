@@ -1928,17 +1928,17 @@ with main_tab2:
 
     st.caption("💡 高频快捷检索：")
     col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-    if col_e1.button("📌 1.8米床 + 适配床垫组合", disabled=st.session_state.guide_query_in_progress):
-        guide_query = "1.8米主卧软体床，推荐匹配高度适中的护脊床垫，一套预算8000以内"
+    if col_e1.button("📌 床头高度低于110cm的有哪些？", disabled=st.session_state.guide_query_in_progress):
+        guide_query = "床头高度低于110cm的床架有哪些？"
         search_btn = True
-    if col_e2.button("📌 青少年防弯曲护脊床垫", disabled=st.session_state.guide_query_in_progress):
-        guide_query = "适合青少年或儿童的1.5米护脊床垫，透气环保硬质支撑"
+    if col_e2.button("📌 床的长度低于215cm的有哪些？", disabled=st.session_state.guide_query_in_progress):
+        guide_query = "床的长度低于215cm的有哪些？"
         search_btn = True
-    if col_e3.button("📌 3米左右 1万内 意式沙发", disabled=st.session_state.guide_query_in_progress):
-        guide_query = "尺寸3米左右，价格10000以内，意式风格真皮或科技布沙发"
+    if col_e3.button("📌 3米左右，10000元以内的沙发有哪些？", disabled=st.session_state.guide_query_in_progress):
+        guide_query = "3米左右，10000元以内的沙发有哪些？"
         search_btn = True
-    if col_e4.button("📌 独立弹簧零干扰静音床垫", disabled=st.session_state.guide_query_in_progress):
-        guide_query = "主卧独立袋装弹簧床垫，抗干扰抗震动，适合浅睡眠人群"
+    if col_e4.button("📌 落地款的沙发有哪些？", disabled=st.session_state.guide_query_in_progress):
+        guide_query = "落地款的沙发有哪些？"
         search_btn = True
 
     st.markdown("---")
@@ -1955,10 +1955,10 @@ with main_tab2:
 
         # 记录导购查询
         _log_query("guide_search", {"query": guide_query, "source": "quick_btn" if guide_query in [
-            "1.8米主卧软体床，推荐匹配高度适中的护脊床垫，一套预算8000以内",
-            "适合青少年或儿童的1.5米护脊床垫，透气环保硬质支撑",
-            "尺寸3米左右，价格10000以内，意式风格真皮或科技布沙发",
-            "主卧独立袋装弹簧床垫，抗干扰抗震动，适合浅睡眠人群",
+            "床头高度低于110cm的床架有哪些？",
+            "床的长度低于215cm的有哪些？",
+            "3米左右，10000元以内的沙发有哪些？",
+            "落地款的沙发有哪些？",
         ] else "manual_input"})
 
         # 判断是否为命名/型号解读类问题
@@ -2003,22 +2003,31 @@ with main_tab2:
             cat_map = {"床垫": "床垫", "床架": "床架", "沙发": "沙发"}
             category = cat_map.get(kw)
 
-            # 增强关键词提取：同时保留原始查询 + 提取的数字/型号关键词
-            # 用 \d{2,} 代替 \b\d{3,4}\b，因为 \b 在中文前后（如"815的床"）会失效
-            search_kw = guide_query
+            # 提取有意义的搜索关键词（而非直接用完整中文句子，避免匹配失败）
+            # 因为产品的 haystack 包含的是单个关键词/数值，不包含完整问句
+            search_kw = ""
+            # 1) 产品类型关键词（用已识别的 kw 确保准确）
+            if kw:
+                search_kw += kw + " "
+            # 2) 提取数字/型号关键词
             model_patterns = re.findall(r'[A-Za-z]{1,4}\.?\d{2,4}[A-Za-z0-9]*|\d{2,}', guide_query)
-            extra_kw = " ".join(model_patterns)
-            if extra_kw.strip():
-                search_kw = guide_query + " " + extra_kw
-            # 色系关键词补充：用户搜"浅色床"，需匹配"浅色系"
+            if model_patterns:
+                search_kw += " ".join(model_patterns) + " "
+            # 3) 提取属性关键词（落地、高脚、风格等）
+            for attr_kw in ["落地", "高脚", "皮床", "布床", "意式", "现代", "简约", "轻奢", "奶油", "极简",
+                            "护脊", "独立弹簧", "静音", "真皮", "科技布", "软体", "悬浮", "智能"]:
+                if attr_kw in guide_query:
+                    search_kw += attr_kw + " "
+            # 4) 色系关键词补充
             if "浅色" in guide_query:
-                search_kw += " 浅色"
+                search_kw += "浅色 "
             if "深色" in guide_query:
-                search_kw += " 深色"
+                search_kw += "深色 "
             if "浅色系" in guide_query or "浅色调" in guide_query:
-                search_kw += " 浅色系"
+                search_kw += "浅色系 "
             if "深色系" in guide_query or "深色调" in guide_query:
-                search_kw += " 深色系"
+                search_kw += "深色系 "
+            search_kw = search_kw.strip()
             candidates, summary = filter_candidates(product_index, category=category, max_price=max_price, keywords=search_kw, min_candidates=999)
 
             # 如果查询中包含型号字样（如 B815PQ1），同时提供命名解读作为参考
