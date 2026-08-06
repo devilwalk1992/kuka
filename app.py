@@ -9,6 +9,7 @@ import streamlit as st
 from fpdf import FPDF
 from openai import OpenAI
 from dotenv import load_dotenv
+from PIL import Image
 
 load_dotenv()
 
@@ -818,6 +819,25 @@ def _img_to_base64(img_path):
         return f"data:{mime};base64,{base64.b64encode(data).decode()}"
     except Exception:
         return ""
+
+
+def _load_resized_image(img_path, max_width=800, quality=80):
+    """加载并压缩图片，返回 PIL Image 对象，减小传输体积"""
+    if not img_path or not os.path.exists(img_path):
+        return None
+    try:
+        img = Image.open(img_path)
+        # 只在宽度超过上限时缩放，避免放大
+        if img.width > max_width:
+            ratio = max_width / img.width
+            new_height = int(img.height * ratio)
+            img = img.resize((max_width, new_height), Image.LANCZOS)
+        # 转换为 RGB 模式（兼容 PNG 透明通道）
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        return img
+    except Exception:
+        return None
 
 
 def _get_product_image(model, images_db):
@@ -1887,6 +1907,12 @@ with main_tab1:
         4. 📐 **沙发长度严格匹配**：沙发总长度必须在 **{sofa_min}~{sofa_max}cm** 之间。
         5. ⚠️ **价格必须使用候选产品中标注的真实价格**，不得自行编造。
 
+【输出格式要求】：
+- 严格使用 **Markdown 纯文本** 格式输出，**禁止输出任何 HTML 代码**（包括 <div>、<img>、<table> 等标签）
+- **禁止嵌入任何 base64 图片或图片 data URI**，图片由系统自动展示
+- 使用标准 Markdown 语法：标题用 #、列表用 - 或 1.、加粗用 **、表格用 |---| 格式
+- 产品清单使用 Markdown 表格呈现，不要使用 HTML <table>
+
 【输出结构】：
 一、空间尺寸与气场碰撞分析
 二、全屋推荐产品清单与报价明细（**每个产品必须注明具体规格/组合名称、实际成交价**）
@@ -1958,17 +1984,22 @@ with main_tab1:
                 fk_upper = folder_key.upper()
                 if any(m in fk_upper or fk_upper in m for m in candidate_models):
                     display_count += 1
-                    with st.expander(f"📦 视觉预览：{folder_key}", expanded=True):
+                    with st.expander(f"📦 视觉预览：{folder_key}", expanded=False):
                         tab_cat, tab_scene, tab_home = st.tabs(["📦 规格/浏览图", "🏡 展厅/场景效果图", "📸 客户入户实景图"])
                         for tab_name, img_key in [("cat", "catalog_images"), ("scene", "scene_images"), ("home", "home_images")]:
                             with [tab_cat, tab_scene, tab_home][["cat", "scene", "home"].index(tab_name)]:
                                 imgs = img_dict.get(img_key, []) or (img_dict.get("real_images", []) if img_key == "home_images" else [])
                                 if imgs:
-                                    for i in range(0, len(imgs), 3):
+                                    # 只显示前3张，使用压缩图减少传输体积
+                                    for i in range(0, min(len(imgs), 3), 3):
                                         cols = st.columns(3)
                                         for j, img_p in enumerate(imgs[i:i+3]):
                                             with cols[j]:
-                                                st.image(img_p, use_container_width=True)
+                                                resized = _load_resized_image(img_p, max_width=500)
+                                                if resized:
+                                                    st.image(resized, use_container_width=True)
+                                                else:
+                                                    st.image(img_p, use_container_width=True)
                                 else:
                                     st.info({"cat": "暂无规格/浏览图", "scene": "暂无展厅/场景效果图", "home": "📸 暂无客户入户实景图"}[tab_name])
 
@@ -1980,7 +2011,7 @@ with main_tab1:
         else:
             # 如果已有方案报告（例如微调后刷新页面），直接展示
             if st.session_state.current_report:
-                st.markdown(st.session_state.current_report)
+                st.markdown(st.session_state.current_report, unsafe_allow_html=True)
             else:
                 st.info("👈 请在左侧填写客户的需求和预算。")
 
@@ -2077,7 +2108,8 @@ with main_tab1:
 3. 📐 **沙发长度约束**：如果涉及沙发，总长度必须在 {_sofa_min}~{_sofa_max}cm 之间。
 4. 💰 **总价控制**：推荐方案总价不得超过预算 ¥{_total_budget:,}，必须在输出中逐项列出价格并累加确认。
 5. 🔄 **预算调整规则**：客户要求调整预算分配时（如"主卧降到13000"），必须从候选产品中重新选择符合新预算的产品，而不是拒绝或返回空方案。候选产品中低价格区间的产品完全可以在新预算下完成搭配。
-6. 输出格式与原方案一致，保留完整报告结构（尺寸分析、产品清单、价格汇总、睡眠建议等）。"""
+6. 输出格式与原方案一致，保留完整报告结构（尺寸分析、产品清单、价格汇总、睡眠建议等）。
+7. **输出格式严格要求**：使用 Markdown 纯文本，禁止输出任何 HTML 代码（<div>、<img>、<table> 等），禁止嵌入 base64 图片。"""
                     try:
                         st.info("🤖 AI 正在根据您的意见调整方案...")
                         new_report = st.write_stream(stream_response(api_key, model_name, edit_prompt, f"客户修改意见：{edit_instruction}"))
@@ -2446,7 +2478,7 @@ with main_tab2:
                 if tagline:
                     card_title += f" | {tagline[:30]}"
 
-                with st.expander(card_title, expanded=True):
+                with st.expander(card_title, expanded=False):
                     col_info, col_imgs = st.columns([1.1, 1], gap="medium")
 
                     # 左侧：详细属性与规格
@@ -2552,22 +2584,34 @@ with main_tab2:
                             with t_cat:
                                 c_imgs = matching_img_dict.get("catalog_images", [])
                                 if c_imgs:
-                                    for img_p in c_imgs[:2]:
-                                        st.image(img_p, use_container_width=True)
+                                    for img_p in c_imgs[:1]:
+                                        resized = _load_resized_image(img_p, max_width=600)
+                                        if resized:
+                                            st.image(resized, use_container_width=True)
+                                        else:
+                                            st.image(img_p, use_container_width=True)
                                 else:
                                     st.info("暂无规格图")
                             with t_scene:
                                 s_imgs = matching_img_dict.get("scene_images", [])
                                 if s_imgs:
-                                    for img_p in s_imgs[:2]:
-                                        st.image(img_p, use_container_width=True)
+                                    for img_p in s_imgs[:1]:
+                                        resized = _load_resized_image(img_p, max_width=600)
+                                        if resized:
+                                            st.image(resized, use_container_width=True)
+                                        else:
+                                            st.image(img_p, use_container_width=True)
                                 else:
                                     st.info("暂无展厅效果图")
                             with t_home:
                                 h_imgs = matching_img_dict.get("home_images", []) or matching_img_dict.get("real_images", [])
                                 if h_imgs:
-                                    for img_p in h_imgs[:2]:
-                                        st.image(img_p, use_container_width=True)
+                                    for img_p in h_imgs[:1]:
+                                        resized = _load_resized_image(img_p, max_width=600)
+                                        if resized:
+                                            st.image(resized, use_container_width=True)
+                                        else:
+                                            st.image(img_p, use_container_width=True)
                                 else:
                                     st.info("暂无客户实景图")
                         else:
