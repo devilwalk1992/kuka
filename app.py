@@ -2544,6 +2544,7 @@ with main_tab2:
         _nl_leg_style = None
         _nl_leg_min = 0
         _nl_leg_max = 0
+        _sofa_seat_min = 0  # 坐垫高度下限（cm）
 
         # ====== 自然语言约束自动提取：从搜索文本中解析数值约束 ======
         # 当用户输入如"沙发靠背高度低于80cm的有哪些？"时，自动提取约束
@@ -2644,6 +2645,25 @@ with main_tab2:
                     for n in _kw_numbers:
                         if 20 <= n <= 150:
                             _sofa_br_limit = n
+                            _constraint_extracted = True
+                            break
+
+            # --- 1b) 沙发坐垫高度约束（坐垫高度，取"大于/高于/超过"下限） ---
+            if "坐垫高度" in _kw_lower:
+                for pat in [r'(?:大于|高于|超过|不小于|≥|>|不低于)\s*(\d+)',
+                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以上|及以上|起|以上)']:
+                    m = re.search(pat, _kw_lower)
+                    if m:
+                        val = int(m.group(1))
+                        if 20 <= val <= 70:
+                            _sofa_seat_min = val
+                            _constraint_extracted = True
+                            break
+                # 若没带"大于/以上"等关键词，但查询含坐垫高度和数字，取上限作为下限
+                if _sofa_seat_min == 0 and _kw_numbers:
+                    for n in _kw_numbers:
+                        if 20 <= n <= 70:
+                            _sofa_seat_min = n
                             _constraint_extracted = True
                             break
 
@@ -2804,6 +2824,11 @@ with main_tab2:
                 br = sofa_dims.get("靠背高度", 0)
                 if br > 0 and br > _sofa_br_limit:
                     continue
+            if _sofa_seat_min > 0:
+                sofa_dims = p.get("sofa_dimensions", {})
+                seat = sofa_dims.get("坐垫高度", 0)
+                if seat > 0 and seat < _sofa_seat_min:
+                    continue
             if _bw_limit > 0:
                 bw = p.get("bed_head_width", 0)
                 if bw > 0 and bw > _bw_limit:
@@ -2863,6 +2888,8 @@ with main_tab2:
                 _auto_constraints.append(f"沙发长度 ≈ {_sofa_len_cm}cm（{_sofa_len_cm/100:.1f}米）")
             if _sofa_br_limit != st.session_state.f_max_sofa_br and _sofa_br_limit > 0:
                 _auto_constraints.append(f"沙发靠背高度 ≤ {_sofa_br_limit}cm")
+            if _sofa_seat_min > 0:
+                _auto_constraints.append(f"坐垫高度 ≥ {_sofa_seat_min}cm")
             if _h_limit != st.session_state.f_max_h and _h_limit > 0:
                 _auto_constraints.append(f"床头高度 ≤ {_h_limit}cm")
             if _blen_limit != st.session_state.f_max_blen and _blen_limit > 0:
