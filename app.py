@@ -2836,7 +2836,7 @@ with main_tab2:
             _orig_cat = None if st.session_state.f_cat == "全部" else st.session_state.f_cat
             if _cat != _orig_cat:
                 _auto_constraints.append(f"品类: {_cat}")
-            if _max_p != st.session_state.f_max_p and _max_p > 0 and _max_p < 50000:
+            if _max_p is not None and _max_p != st.session_state.f_max_p and _max_p > 0 and _max_p < 50000:
                 _auto_constraints.append(f"价格 ≤ ¥{_max_p:,}")
             if _sofa_len_cm > 0:
                 _auto_constraints.append(f"沙发长度 ≈ {_sofa_len_cm}cm（{_sofa_len_cm/100:.1f}米）")
