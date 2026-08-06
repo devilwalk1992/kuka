@@ -2493,6 +2493,7 @@ with main_tab2:
         _blen_limit = st.session_state.f_max_blen
         _sofa_br_limit = st.session_state.f_max_sofa_br
         _bw_limit = st.session_state.f_max_bw
+        _sofa_len_cm = 0
 
         # ====== 自然语言约束自动提取：从搜索文本中解析数值约束 ======
         # 当用户输入如"沙发靠背高度低于80cm的有哪些？"时，自动提取约束
@@ -2512,6 +2513,66 @@ with main_tab2:
                     _cat = "床架"
                 elif "配套" in _kw_lower or "茶几" in _kw_lower or "餐桌" in _kw_lower:
                     _cat = "配套"
+
+            # --- 0) 价格约束（元/万元/以内/以下/不超过/预算） ---
+            if any(kw in _kw_lower for kw in ["元以内", "元以下", "元不超过", "元及以下", "万元以内", "万元以下", "万以内", "万以下", "预算", "价格", "块钱以内", "块以内", "元左右", "万元左右", "万左右"]):
+                # 提取价格数值
+                price_val = None
+                # 万元模式：X万/Y万元
+                wan_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:万|万元)\s*(?:以内|以下|不超过|及以下|左右)?', _kw_lower)
+                if wan_match:
+                    price_val = int(float(wan_match.group(1)) * 10000)
+                else:
+                    # 元模式：X元/X块
+                    yuan_match = re.search(r'(\d+)\s*(?:元|块|块钱)\s*(?:以内|以下|不超过|及以下|左右)?', _kw_lower)
+                    if yuan_match:
+                        price_val = int(yuan_match.group(1))
+                    else:
+                        # "以内/以下/左右"前面的数字
+                        for pat in [r'(\d+)\s*(?:元|块|块钱)?\s*(?:以内|以下|不超过|及以下|左右)',
+                                    r'(?:低于|小于|不超过|不大于|预算)\s*(\d+)\s*(?:元|块|万|万元)?']:
+                            m = re.search(pat, _kw_lower)
+                            if m:
+                                price_val = int(m.group(1))
+                                # 如果是万级数字但没单位，且数值较小（<100），可能是万
+                                if price_val < 100 and any(kw in _kw_lower for kw in ["万", "万元"]):
+                                    price_val = price_val * 10000
+                                break
+                if price_val and price_val > 100:  # 合理价格范围下限
+                    _max_p = price_val
+                    _constraint_extracted = True
+
+            # --- 0b) 沙发长度/尺寸约束（米/长/总长/长度/尺寸/大小） ---
+            # 仅当品类是沙发或查询中包含沙发相关词时提取
+            _sofa_len_cm = 0
+            if _cat == "沙发" or any(kw in _kw_lower for kw in ["沙发", "客厅"]):
+                # 米单位：X米/X.X米
+                mi_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:米|m)\s*(?:的|长|沙发|尺寸|大小|左右|以内)?', _kw_lower)
+                if mi_match:
+                    meters = float(mi_match.group(1))
+                    if 1.0 <= meters <= 5.0:  # 合理沙发长度范围
+                        _sofa_len_cm = int(meters * 100)
+                        _constraint_extracted = True
+                else:
+                    # 厘米单位
+                    cm_match = re.search(r'(\d+)\s*(?:cm|厘米)\s*(?:的|长|沙发|尺寸|大小|左右|以内)?', _kw_lower)
+                    if cm_match:
+                        val = int(cm_match.group(1))
+                        if 100 <= val <= 500:
+                            _sofa_len_cm = val
+                            _constraint_extracted = True
+                    else:
+                        # "长度/长/总长"前面或后面的数字
+                        if any(kw in _kw_lower for kw in ["长度", "总长", "长"]):
+                            for pat in [r'(?:长度|总长|长)\s*(?:低于|小于|不超过|以内)?\s*(\d+)',
+                                        r'(\d+)\s*(?:cm|厘米)?\s*(?:长度|总长|长)']:
+                                m = re.search(pat, _kw_lower)
+                                if m:
+                                    val = int(m.group(1))
+                                    if 100 <= val <= 500:
+                                        _sofa_len_cm = val
+                                        _constraint_extracted = True
+                                        break
 
             # --- 1) 沙发靠背高度约束（靠背高度/沙发靠背/靠背高） ---
             if any(kw in _kw_lower for kw in ["靠背高度", "沙发靠背", "靠背高"]):
@@ -2602,6 +2663,7 @@ with main_tab2:
             product_index,
             category=_cat,
             max_price=_max_p,
+            sofa_length=_sofa_len_cm if _sofa_len_cm > 0 else None,
             style=_style,
             keywords=_kw,
             min_candidates=99999,
@@ -2653,6 +2715,10 @@ with main_tab2:
             _orig_cat = None if st.session_state.f_cat == "全部" else st.session_state.f_cat
             if _cat != _orig_cat:
                 _auto_constraints.append(f"品类: {_cat}")
+            if _max_p != st.session_state.f_max_p and _max_p > 0 and _max_p < 50000:
+                _auto_constraints.append(f"价格 ≤ ¥{_max_p:,}")
+            if _sofa_len_cm > 0:
+                _auto_constraints.append(f"沙发长度 ≈ {_sofa_len_cm}cm（{_sofa_len_cm/100:.1f}米）")
             if _sofa_br_limit != st.session_state.f_max_sofa_br and _sofa_br_limit > 0:
                 _auto_constraints.append(f"沙发靠背高度 ≤ {_sofa_br_limit}cm")
             if _h_limit != st.session_state.f_max_h and _h_limit > 0:
