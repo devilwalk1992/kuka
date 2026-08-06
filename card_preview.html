@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>产品卡片样式预览</title>
+<style>
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        background: #f8fafc;
+        padding: 40px;
+        margin: 0;
+    }
+    h1 {
+        color: #0f172a;
+        font-size: 24px;
+        margin-bottom: 8px;
+    }
+    .subtitle {
+        color: #64748b;
+        margin-bottom: 30px;
+        font-size: 14px;
+    }
+    .section-title {
+        color: #334155;
+        font-size: 16px;
+        font-weight: 600;
+        margin: 30px 0 12px;
+        padding-left: 10px;
+        border-left: 4px solid #3b82f6;
+    }
+
+    /* ===== 产品卡片样式 ===== */
+    .pd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin: 16px 0; }
+    .pd-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.04); border: 1px solid #e2e8f0; overflow: hidden; transition: all 0.2s ease; }
+    .pd-card:hover { box-shadow: 0 8px 24px rgba(15,23,42,0.1), 0 2px 6px rgba(15,23,42,0.06); transform: translateY(-2px); }
+    .pd-head { padding: 14px 16px 10px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pd-cat { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #fff; }
+    .pd-cat.sofa { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+    .pd-cat.bed { background: linear-gradient(135deg, #ec4899, #f472b6); }
+    .pd-cat.mattress { background: linear-gradient(135deg, #10b981, #34d399); }
+    .pd-cat.table { background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #78350f; }
+    .pd-model { font-size: 14px; font-weight: 700; color: #0f172a; }
+    .pd-name { font-size: 13px; color: #64748b; }
+    .pd-series { font-size: 11px; color: #94a3b8; margin-left: auto; }
+    .pd-price { padding: 12px 16px; background: linear-gradient(135deg, #fef2f2, #fff1f2); border-bottom: 1px solid #fecaca; }
+    .pd-price .pl { font-size: 11px; color: #94a3b8; margin-right: 6px; }
+    .pd-price .pv { font-size: 22px; font-weight: 800; color: #dc2626; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: -0.5px; }
+    .pd-price .pv small { font-size: 13px; font-weight: 600; }
+    .pd-body { padding: 12px 16px 16px; }
+    .pd-info { font-size: 12px; color: #475569; line-height: 1.9; }
+    .pd-info .k { color: #94a3b8; font-size: 11px; }
+    .pd-info .v { color: #334155; font-weight: 500; }
+    .pd-spec-tag { display: inline-block; padding: 2px 8px; background: #f1f5f9; color: #475569; border-radius: 4px; font-size: 11px; margin: 2px 4px 2px 0; }
+    .pd-room-tag { display: inline-block; padding: 2px 8px; background: #eff6ff; color: #2563eb; border-radius: 4px; font-size: 11px; font-weight: 500; margin-right: 4px; }
+</style>
+</head>
+<body>
+    <h1>🎨 产品卡片样式预览</h1>
+    <p class="subtitle">成交价红色大字、渐变品类标签、悬浮抬升效果、圆角阴影高级感</p>
+
+    <div class="section-title">🛋️ 沙发类</div>
+    <div class="pd-grid">
+        <div class="pd-card">
+            <div class="pd-head">
+                <span class="pd-cat sofa">沙发</span>
+                <span class="pd-model">JD.6172</span>
+                <span class="pd-name">赫兹S9</span>
+                <span class="pd-series">经典系列</span>
+            </div>
+            <div class="pd-price">
+                <span class="pl">成交价</span>
+                <span class="pv">¥12,899 <small>起</small></span>
+            </div>
+            <div class="pd-body">
+                <div class="pd-info">
+                    <div><span class="pd-room-tag">客厅</span> <span class="pd-spec-tag">3双2电动</span> <span class="pd-spec-tag">253cm</span></div>
+                    <div><span class="k">靠背高度</span> <span class="v">77cm</span> ｜ <span class="k">坐深</span> <span class="v">64cm</span></div>
+                    <div><span class="k">面料</span> <span class="v">头层牛皮</span> ｜ <span class="k">功能</span> <span class="v">零重力按摩</span></div>
+                    <div><span class="k">配色</span> <span class="v">云月白、暗夜棕、星爵黑</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pd-card">
+            <div class="pd-head">
+                <span class="pd-cat sofa">沙发</span>
+                <span class="pd-model">YS.6005</span>
+                <span class="pd-name">星辰</span>
+                <span class="pd-series">艺术家系列</span>
+            </div>
+            <div class="pd-price">
+                <span class="pl">成交价</span>
+                <span class="pv">¥8,999</span>
+            </div>
+            <div class="pd-body">
+                <div class="pd-info">
+                    <div><span class="pd-room-tag">客厅</span> <span class="pd-spec-tag">3+躺</span> <span class="pd-spec-tag">320cm</span></div>
+                    <div><span class="k">靠背高度</span> <span class="v">90cm</span> ｜ <span class="k">坐深</span> <span class="v">58cm</span></div>
+                    <div><span class="k">面料</span> <span class="v">科技布</span> ｜ <span class="k">功能</span> <span class="v">电动调节</span></div>
+                    <div><span class="k">配色</span> <span class="v">浅云白、暖咖色</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-title">🛏️ 床架类</div>
+    <div class="pd-grid">
+        <div class="pd-card">
+            <div class="pd-head">
+                <span class="pd-cat bed">床架</span>
+                <span class="pd-model">ZX.B721FQ1</span>
+                <span class="pd-name">朗悦</span>
+                <span class="pd-series">智享系列</span>
+            </div>
+            <div class="pd-price">
+                <span class="pl">成交价</span>
+                <span class="pv">¥2,399 <small>起</small></span>
+            </div>
+            <div class="pd-body">
+                <div class="pd-info">
+                    <div><span class="pd-room-tag">次卧</span> <span class="pd-spec-tag">201*151</span> <span class="pd-spec-tag">齐边排骨条</span></div>
+                    <div><span class="k">床身高</span> <span class="v">31cm</span> ｜ <span class="k">适配床垫</span> <span class="v">20-28cm</span></div>
+                    <div><span class="k">靠包</span> <span class="v">无床头</span> ｜ <span class="k">配色</span> <span class="v">黑武士、菊蕊白</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pd-card">
+            <div class="pd-head">
+                <span class="pd-cat bed">床架</span>
+                <span class="pd-model">JD.B021PQ1</span>
+                <span class="pd-name">麦语</span>
+                <span class="pd-series">经典系列</span>
+            </div>
+            <div class="pd-price">
+                <span class="pl">成交价</span>
+                <span class="pv">¥5,299 ~ ¥6,299</span>
+            </div>
+            <div class="pd-body">
+                <div class="pd-info">
+                    <div><span class="pd-room-tag">主卧</span> <span class="pd-spec-tag">201*181</span> <span class="pd-spec-tag">齐边排骨条</span></div>
+                    <div><span class="k">床头高</span> <span class="v">116cm</span> ｜ <span class="k">总长</span> <span class="v">221cm</span></div>
+                    <div><span class="k">靠包</span> <span class="v">上下分段式</span> ｜ <span class="k">面料</span> <span class="v">头层牛皮</span></div>
+                    <div><span class="k">配色</span> <span class="v">燕麦拿铁、星云灰</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-title">🛌 床垫类</div>
+    <div class="pd-grid">
+        <div class="pd-card">
+            <div class="pd-head">
+                <span class="pd-cat mattress">床垫</span>
+                <span class="pd-model">JD.M1018.H25</span>
+                <span class="pd-name">抑菌防螨</span>
+                <span class="pd-series">经典系列</span>
+            </div>
+            <div class="pd-price">
+                <span class="pl">成交价</span>
+                <span class="pv">¥4,499 <small>起</small></span>
+            </div>
+            <div class="pd-body">
+                <div class="pd-info">
+                    <div><span class="pd-room-tag">主卧</span> <span class="pd-spec-tag">1800×2000</span> <span class="pd-spec-tag">25cm</span></div>
+                    <div><span class="k">睡感</span> <span class="v">正面偏硬/反面硬</span> ｜ <span class="k">弹簧</span> <span class="v">七区独立筒</span></div>
+                    <div><span class="k">面料</span> <span class="v">山宁泰抑菌防螨</span> ｜ <span class="k">填充</span> <span class="v">乳胶+石墨烯3D</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-title">🪑 配套类</div>
+    <div class="pd-grid">
+        <div class="pd-card">
+            <div class="pd-head">
+                <span class="pd-cat table">配套</span>
+                <span class="pd-model">PT3188</span>
+                <span class="pd-name">岩板茶几</span>
+                <span class="pd-series">经典系列</span>
+            </div>
+            <div class="pd-price">
+                <span class="pl">成交价</span>
+                <span class="pv">¥2,999</span>
+            </div>
+            <div class="pd-body">
+                <div class="pd-info">
+                    <div><span class="pd-room-tag">客厅</span> <span class="pd-spec-tag">130×70cm</span> <span class="pd-spec-tag">岩板</span></div>
+                    <div><span class="k">材质</span> <span class="v">岩板台面+实木腿</span> ｜ <span class="k">风格</span> <span class="v">现代简约</span></div>
+                    <div><span class="k">颜色</span> <span class="v">鱼肚白、劳伦黑金</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
