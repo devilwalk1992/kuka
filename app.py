@@ -89,24 +89,35 @@ _COLOR_TONE_RULES = [
 
 def _classify_color_tone(color_names):
     """根据颜色名称列表判断整体色调，返回 '浅色系' 或 '深色系'（默认深色系）"""
+    tones = _classify_color_tones(color_names)
+    return tones[0] if tones else "深色系"
+
+
+def _classify_color_tones(color_names):
+    """返回产品可选的全部色调集合（浅色系/深色系可同时存在）。
+
+    多色床架（同时有浅色与深色配色可选）会被归入多个色调，
+    这样搜索"浅色的床"或"深色的床"都能命中它们。
+    """
     if not color_names:
-        return "深色系"
+        return ["深色系"]
     text = " ".join(color_names)
-    # 先检查浅色系：产品只要包含任一浅色配色，即归为浅色系
-    # （这样用户搜索"浅色的床"时，能看到所有有浅色可选的床）
+    tones = []
     shallow_kws, _ = _COLOR_TONE_RULES[1]
     if any(kw in text for kw in shallow_kws):
-        return "浅色系"
-    # 再检查深色系
+        tones.append("浅色系")
     deep_kws, _ = _COLOR_TONE_RULES[0]
     if any(kw in text for kw in deep_kws):
-        return "深色系"
-    # 包含 "色" 但不含上述关键词，根据常见色名判断
-    if "白" in text or "米" in text or "奶" in text:
-        return "浅色系"
-    if "黑" in text or "灰" in text or "棕" in text or "褐" in text or "咖" in text or "深" in text:
-        return "深色系"
-    return "深色系"  # 默认深色
+        tones.append("深色系")
+    if not tones:
+        # 不含规则关键词，根据常见色名判断
+        if "白" in text or "米" in text or "奶" in text:
+            tones.append("浅色系")
+        elif "黑" in text or "灰" in text or "棕" in text or "褐" in text or "咖" in text or "深" in text:
+            tones.append("深色系")
+        else:
+            tones.append("深色系")
+    return tones
 
 
 # ==================== 3. 数据收集 ====================
@@ -349,6 +360,7 @@ def _parse_md_product(filepath, rel_path):
 
     # 色调分类
     color_tone = _classify_color_tone(colors)
+    color_tones = _classify_color_tones(colors)
 
     # 价格：从规格价格表提取（精确可靠，替换旧的全文档正则）
     price_rows, table_prices = _extract_price_rows(text, category, max_rows=30)
@@ -600,6 +612,7 @@ def _parse_md_product(filepath, rel_path):
 "colors": colors,
         "color_codes": color_codes[:3],
         "color_tone": color_tone,
+        "color_tones": color_tones,
         "min_price": min_price,
         "max_price": max_price,
         "lengths": sorted(set(lengths)),
@@ -638,7 +651,7 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v18_color_tone_fix"):
+def build_product_index_v3(_version="v19_color_tones_multi"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
@@ -2774,7 +2787,7 @@ with main_tab2:
         # 二级精准属性过滤（色调、系列、床头高、床长、沙发靠背高）
         final_results = []
         for p in matched_products:
-            if _tone != "全部" and p.get("color_tone") != _tone:
+            if _tone != "全部" and _tone not in p.get("color_tones", [p.get("color_tone", "")]):
                 continue
             if _series != "全部" and p.get("series", "") != _series:
                 continue
@@ -2796,7 +2809,7 @@ with main_tab2:
                 if bw > 0 and bw > _bw_limit:
                     continue
             # 颜色/色系过滤
-            if _nl_color_tone and p.get("color_tone") != _nl_color_tone:
+            if _nl_color_tone and _nl_color_tone not in p.get("color_tones", [p.get("color_tone", "")]):
                 continue
             # 具体颜色关键词过滤（产品颜色名中需包含关键词之一）
             if _nl_color_keywords:
