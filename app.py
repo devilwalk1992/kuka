@@ -71,7 +71,7 @@ _COLOR_TONE_RULES = [
       "栗子棕", "栗壳色", "榛果褐", "核桃", "胡桃", "可可棕", "布朗棕", "丹麦棕",
       "赫钻棕", "奶棕色", "暗夜", "耀夜", "暮山", "浆果", "烟霞栗", "暖栗色",
       "星云灰", "银河灰", "鹰翼灰", "雾色灰", "月光灰", "轻影灰", "霜禾灰",
-      "蜜杏灰", "浅杏灰", "暖米灰", "深棕"], "深色系"),
+      "深棕"], "深色系"),
     # 浅色系
     (["云石白", "云影白", "云月白", "月光白", "雪花石", "菊蕊白", "霜绒白", "流沙白",
       "柔空白", "沙滩白", "大麦白", "乳酪白", "梨花白", "栀子白", "奶钻白", "萄苔白",
@@ -92,10 +92,15 @@ def _classify_color_tone(color_names):
     if not color_names:
         return "深色系"
     text = " ".join(color_names)
-    # 先检查深色系
-    for keywords, tone in _COLOR_TONE_RULES:
-        if any(kw in text for kw in keywords):
-            return tone
+    # 先检查浅色系：产品只要包含任一浅色配色，即归为浅色系
+    # （这样用户搜索"浅色的床"时，能看到所有有浅色可选的床）
+    shallow_kws, _ = _COLOR_TONE_RULES[1]
+    if any(kw in text for kw in shallow_kws):
+        return "浅色系"
+    # 再检查深色系
+    deep_kws, _ = _COLOR_TONE_RULES[0]
+    if any(kw in text for kw in deep_kws):
+        return "深色系"
     # 包含 "色" 但不含上述关键词，根据常见色名判断
     if "白" in text or "米" in text or "奶" in text:
         return "浅色系"
@@ -633,7 +638,7 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v17_bed_frame_enhance"):
+def build_product_index_v3(_version="v18_color_tone_fix"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
