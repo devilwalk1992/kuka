@@ -93,6 +93,55 @@ def _classify_color_tone(color_names):
     return tones[0] if tones else "深色系"
 
 
+def _extract_dim_range(kw_lower, keywords, lo, hi):
+    """从自然语言查询中提取某尺寸的上限和下限（支持 大于/小于 双向）。
+
+    参数:
+        kw_lower: 小写后的查询文本
+        keywords: 触发该尺寸检查的关键词列表（如 ["靠背高度", "沙发靠背"]）
+        lo, hi: 该尺寸的合理数值范围（用于排除无关数字）
+
+    返回:
+        (min_val, max_val, extracted)
+        min_val: 下限值（>0 表示"大于/高于/以上"约束）
+        max_val: 上限值（>0 表示"小于/低于/以下/以内"约束）
+    """
+    min_val = 0
+    max_val = 0
+    extracted = False
+    if not any(kw in kw_lower for kw in keywords):
+        return min_val, max_val, extracted
+    # 下限：大于/高于/超过/不小于/不低于/以上/起
+    for pat in [r'(?:大于|高于|超过|不小于|不低于|≥|>)\s*(\d+)',
+                r'(\d+)\s*(?:cm|厘米)?\s*(?:以上|及以上|起)']:
+        m = re.search(pat, kw_lower)
+        if m:
+            val = int(m.group(1))
+            if lo <= val <= hi:
+                min_val = val
+                extracted = True
+            break
+    # 上限：小于/低于/不超过/不大于/以内/以下
+    for pat in [r'(?:小于|低于|不超过|不大于|≤|<|以内)\s*(\d+)',
+                r'(\d+)\s*(?:cm|厘米)?\s*(?:以下|以内|及以下)']:
+        m = re.search(pat, kw_lower)
+        if m:
+            val = int(m.group(1))
+            if lo <= val <= hi:
+                max_val = val
+                extracted = True
+            break
+    # 未匹配到明确比较词时，取第一个合理数字作为上限（默认语义）
+    if min_val == 0 and max_val == 0:
+        for n in re.findall(r'\d+', kw_lower):
+            n = int(n)
+            if lo <= n <= hi:
+                max_val = n
+                extracted = True
+                break
+    return min_val, max_val, extracted
+
+
 def _classify_color_tones(color_names):
     """返回产品可选的全部色调集合（浅色系/深色系可同时存在）。
 
@@ -2545,6 +2594,11 @@ with main_tab2:
         _nl_leg_min = 0
         _nl_leg_max = 0
         _sofa_seat_min = 0  # 坐垫高度下限（cm）
+        _sofa_seat_max = 0  # 坐垫高度上限（cm）
+        _sofa_br_min = 0    # 沙发靠背高度下限（cm）
+        _h_min = 0          # 床头高度下限（cm）
+        _blen_min = 0       # 床总长度下限（cm）
+        _bw_min = 0         # 床头宽度下限（cm）
 
         # ====== 自然语言约束自动提取：从搜索文本中解析数值约束 ======
         # 当用户输入如"沙发靠背高度低于80cm的有哪些？"时，自动提取约束
@@ -2628,101 +2682,35 @@ with main_tab2:
                                         _constraint_extracted = True
                                         break
 
-            # --- 1) 沙发靠背高度约束（靠背高度/沙发靠背/靠背高） ---
+            # --- 1) 沙发靠背高度约束（靠背高度/沙发靠背/靠背高，支持大于/小于） ---
             if any(kw in _kw_lower for kw in ["靠背高度", "沙发靠背", "靠背高"]):
-                for pat in [r'(?:低于|小于|<|≤|不大于|不超过|以内)\s*(\d+)',
-                            r'(\d+)\s*(?:cm|厘米)\s*(?:以下|以内|及以下)',
-                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以下|以内|及以下)']:
-                    m = re.search(pat, _kw_lower)
-                    if m:
-                        val = int(m.group(1))
-                        if 20 <= val <= 150:
-                            _sofa_br_limit = val
-                            _constraint_extracted = True
-                            break
-                # 如果没找到"低于"类关键词，取第一个合理数字作为上限
-                if _sofa_br_limit == 0 and _kw_numbers:
-                    for n in _kw_numbers:
-                        if 20 <= n <= 150:
-                            _sofa_br_limit = n
-                            _constraint_extracted = True
-                            break
+                _sofa_br_min, _sofa_br_limit, _ex = _extract_dim_range(_kw_lower, ["靠背高度", "沙发靠背", "靠背高"], 20, 150)
+                if _ex:
+                    _constraint_extracted = True
 
-            # --- 1b) 沙发坐垫高度约束（坐垫高度，取"大于/高于/超过"下限） ---
+            # --- 1b) 沙发坐垫高度约束（坐垫高度，支持大于/小于） ---
             if "坐垫高度" in _kw_lower:
-                for pat in [r'(?:大于|高于|超过|不小于|≥|>|不低于)\s*(\d+)',
-                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以上|及以上|起|以上)']:
-                    m = re.search(pat, _kw_lower)
-                    if m:
-                        val = int(m.group(1))
-                        if 20 <= val <= 70:
-                            _sofa_seat_min = val
-                            _constraint_extracted = True
-                            break
-                # 若没带"大于/以上"等关键词，但查询含坐垫高度和数字，取上限作为下限
-                if _sofa_seat_min == 0 and _kw_numbers:
-                    for n in _kw_numbers:
-                        if 20 <= n <= 70:
-                            _sofa_seat_min = n
-                            _constraint_extracted = True
-                            break
+                _sofa_seat_min, _sofa_seat_max, _ex = _extract_dim_range(_kw_lower, ["坐垫高度"], 20, 70)
+                if _ex:
+                    _constraint_extracted = True
 
-            # --- 2) 床头高度约束（床头高度/床头高/头高） ---
+            # --- 2) 床头高度约束（床头高度/床头高/头高，支持大于/小于） ---
             if any(kw in _kw_lower for kw in ["床头高度", "床头高", "头高"]):
-                for pat in [r'(?:低于|小于|<|≤|不大于|不超过|以内)\s*(\d+)',
-                            r'(\d+)\s*(?:cm|厘米)\s*(?:以下|以内|及以下)',
-                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以下|以内|及以下)']:
-                    m = re.search(pat, _kw_lower)
-                    if m:
-                        val = int(m.group(1))
-                        if 20 <= val <= 200:
-                            _h_limit = val
-                            _constraint_extracted = True
-                            break
-                if _h_limit == 0 and _kw_numbers:
-                    for n in _kw_numbers:
-                        if 20 <= n <= 200:
-                            _h_limit = n
-                            _constraint_extracted = True
-                            break
+                _h_min, _h_limit, _ex = _extract_dim_range(_kw_lower, ["床头高度", "床头高", "头高"], 20, 200)
+                if _ex:
+                    _constraint_extracted = True
 
-            # --- 3) 床总长度约束（床长/床长度/总长/床总长） ---
+            # --- 3) 床总长度约束（床长/床长度/总长/床总长，支持大于/小于） ---
             if any(kw in _kw_lower for kw in ["床长", "床长度", "总长", "床总长"]):
-                for pat in [r'(?:低于|小于|<|≤|不大于|不超过|以内)\s*(\d+)',
-                            r'(\d+)\s*(?:cm|厘米)\s*(?:以下|以内|及以下)',
-                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以下|以内|及以下)']:
-                    m = re.search(pat, _kw_lower)
-                    if m:
-                        val = int(m.group(1))
-                        if 100 <= val <= 260:
-                            _blen_limit = val
-                            _constraint_extracted = True
-                            break
-                if _blen_limit == 0 and _kw_numbers:
-                    for n in _kw_numbers:
-                        if 100 <= n <= 260:
-                            _blen_limit = n
-                            _constraint_extracted = True
-                            break
+                _blen_min, _blen_limit, _ex = _extract_dim_range(_kw_lower, ["床长", "床长度", "总长", "床总长"], 100, 260)
+                if _ex:
+                    _constraint_extracted = True
 
-            # --- 4) 床头宽度约束（床头宽度/床头宽/宽度/床宽） ---
+            # --- 4) 床头宽度约束（床头宽度/床头宽/宽度/床宽，支持大于/小于） ---
             if any(kw in _kw_lower for kw in ["床头宽度", "床头宽", "床宽度", "床的宽度"]):
-                for pat in [r'(?:低于|小于|<|≤|不大于|不超过|以内)\s*(\d+)',
-                            r'(\d+)\s*(?:cm|厘米)\s*(?:以下|以内|及以下)',
-                            r'(\d+)\s*(?:cm|厘米)?\s*(?:以下|以内|及以下)']:
-                    m = re.search(pat, _kw_lower)
-                    if m:
-                        val = int(m.group(1))
-                        if 50 <= val <= 300:
-                            _bw_limit = val
-                            _constraint_extracted = True
-                            break
-                if _bw_limit == 0 and _kw_numbers:
-                    for n in _kw_numbers:
-                        if 50 <= n <= 300:
-                            _bw_limit = n
-                            _constraint_extracted = True
-                            break
+                _bw_min, _bw_limit, _ex = _extract_dim_range(_kw_lower, ["床头宽度", "床头宽", "床宽度", "床的宽度"], 50, 300)
+                if _ex:
+                    _constraint_extracted = True
 
             # --- 5) 颜色/色系约束（深色/浅色/具体色名） ---
             _nl_color_tone = None  # "浅色系" 或 "深色系"
@@ -2811,28 +2799,43 @@ with main_tab2:
                 continue
             if _series != "全部" and p.get("series", "") != _series:
                 continue
-            if _h_limit > 0:
+            if _h_min > 0 or _h_limit > 0:
                 h_height = p.get("bed_head_height", 0)
-                if h_height > 0 and h_height > _h_limit:
-                    continue
-            if _blen_limit > 0:
+                if h_height > 0:
+                    if _h_min > 0 and h_height < _h_min:
+                        continue
+                    if _h_limit > 0 and h_height > _h_limit:
+                        continue
+            if _blen_min > 0 or _blen_limit > 0:
                 b_len = p.get("bed_total_length", 0)
-                if b_len > 0 and b_len > _blen_limit:
-                    continue
-            if _sofa_br_limit > 0:
+                if b_len > 0:
+                    if _blen_min > 0 and b_len < _blen_min:
+                        continue
+                    if _blen_limit > 0 and b_len > _blen_limit:
+                        continue
+            if _sofa_br_min > 0 or _sofa_br_limit > 0:
                 sofa_dims = p.get("sofa_dimensions", {})
                 br = sofa_dims.get("靠背高度", 0)
-                if br > 0 and br > _sofa_br_limit:
-                    continue
-            if _sofa_seat_min > 0:
+                if br > 0:
+                    if _sofa_br_min > 0 and br < _sofa_br_min:
+                        continue
+                    if _sofa_br_limit > 0 and br > _sofa_br_limit:
+                        continue
+            if _sofa_seat_min > 0 or _sofa_seat_max > 0:
                 sofa_dims = p.get("sofa_dimensions", {})
                 seat = sofa_dims.get("坐垫高度", 0)
-                if seat > 0 and seat < _sofa_seat_min:
-                    continue
-            if _bw_limit > 0:
+                if seat > 0:
+                    if _sofa_seat_min > 0 and seat < _sofa_seat_min:
+                        continue
+                    if _sofa_seat_max > 0 and seat > _sofa_seat_max:
+                        continue
+            if _bw_min > 0 or _bw_limit > 0:
                 bw = p.get("bed_head_width", 0)
-                if bw > 0 and bw > _bw_limit:
-                    continue
+                if bw > 0:
+                    if _bw_min > 0 and bw < _bw_min:
+                        continue
+                    if _bw_limit > 0 and bw > _bw_limit:
+                        continue
             # 颜色/色系过滤
             if _nl_color_tone and _nl_color_tone not in p.get("color_tones", [p.get("color_tone", "")]):
                 continue
@@ -2886,16 +2889,41 @@ with main_tab2:
                 _auto_constraints.append(f"价格 ≤ ¥{_max_p:,}")
             if _sofa_len_cm > 0:
                 _auto_constraints.append(f"沙发长度 ≈ {_sofa_len_cm}cm（{_sofa_len_cm/100:.1f}米）")
-            if _sofa_br_limit != st.session_state.f_max_sofa_br and _sofa_br_limit > 0:
-                _auto_constraints.append(f"沙发靠背高度 ≤ {_sofa_br_limit}cm")
-            if _sofa_seat_min > 0:
-                _auto_constraints.append(f"坐垫高度 ≥ {_sofa_seat_min}cm")
-            if _h_limit != st.session_state.f_max_h and _h_limit > 0:
-                _auto_constraints.append(f"床头高度 ≤ {_h_limit}cm")
-            if _blen_limit != st.session_state.f_max_blen and _blen_limit > 0:
-                _auto_constraints.append(f"床总长度 ≤ {_blen_limit}cm")
-            if _bw_limit != st.session_state.f_max_bw and _bw_limit > 0:
-                _auto_constraints.append(f"床头宽度 ≤ {_bw_limit}cm")
+            if _sofa_br_min > 0 or _sofa_br_limit > 0:
+                if _sofa_br_limit > 0 and _sofa_br_min > 0:
+                    _auto_constraints.append(f"沙发靠背高度 {_sofa_br_min}~{_sofa_br_limit}cm")
+                elif _sofa_br_min > 0:
+                    _auto_constraints.append(f"沙发靠背高度 ≥ {_sofa_br_min}cm")
+                elif _sofa_br_limit != st.session_state.f_max_sofa_br:
+                    _auto_constraints.append(f"沙发靠背高度 ≤ {_sofa_br_limit}cm")
+            if _sofa_seat_min > 0 or _sofa_seat_max > 0:
+                if _sofa_seat_max > 0 and _sofa_seat_min > 0:
+                    _auto_constraints.append(f"坐垫高度 {_sofa_seat_min}~{_sofa_seat_max}cm")
+                elif _sofa_seat_min > 0:
+                    _auto_constraints.append(f"坐垫高度 ≥ {_sofa_seat_min}cm")
+                elif _sofa_seat_max > 0:
+                    _auto_constraints.append(f"坐垫高度 ≤ {_sofa_seat_max}cm")
+            if _h_min > 0 or _h_limit > 0:
+                if _h_limit > 0 and _h_min > 0:
+                    _auto_constraints.append(f"床头高度 {_h_min}~{_h_limit}cm")
+                elif _h_min > 0:
+                    _auto_constraints.append(f"床头高度 ≥ {_h_min}cm")
+                elif _h_limit != st.session_state.f_max_h:
+                    _auto_constraints.append(f"床头高度 ≤ {_h_limit}cm")
+            if _blen_min > 0 or _blen_limit > 0:
+                if _blen_limit > 0 and _blen_min > 0:
+                    _auto_constraints.append(f"床总长度 {_blen_min}~{_blen_limit}cm")
+                elif _blen_min > 0:
+                    _auto_constraints.append(f"床总长度 ≥ {_blen_min}cm")
+                elif _blen_limit != st.session_state.f_max_blen:
+                    _auto_constraints.append(f"床总长度 ≤ {_blen_limit}cm")
+            if _bw_min > 0 or _bw_limit > 0:
+                if _bw_limit > 0 and _bw_min > 0:
+                    _auto_constraints.append(f"床头宽度 {_bw_min}~{_bw_limit}cm")
+                elif _bw_min > 0:
+                    _auto_constraints.append(f"床头宽度 ≥ {_bw_min}cm")
+                elif _bw_limit != st.session_state.f_max_bw:
+                    _auto_constraints.append(f"床头宽度 ≤ {_bw_limit}cm")
             if _nl_color_tone:
                 _auto_constraints.append(f"色系: {_nl_color_tone}")
             if _nl_color_keywords:
