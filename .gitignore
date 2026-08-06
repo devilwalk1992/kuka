@@ -61,3 +61,7 @@ Intelligent mattress__products/
 *.7z
 # 查询日志
 query_log.jsonl
+
+# 本地备份与卡片预览（不入库）
+app.py.bak
+card_preview.html
