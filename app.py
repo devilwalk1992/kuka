@@ -229,9 +229,25 @@ def _parse_md_product(filepath, rel_path):
     name_match = re.search(r'\*\*产品名称\*\*\s*:\s*(.+)', text)
     name = name_match.group(1).strip() if name_match else model
 
-    # 产品线/系列
+    # 产品线/系列（优先从文档读取，其次按型号前缀映射）
     series_match = re.search(r'\*\*产品线\*\*\s*:\s*(.+)', text)
     series = series_match.group(1).strip() if series_match else ""
+    if not series:
+        # 床垫等产品可能用"产品系列"字段
+        series_match2 = re.search(r'\*\*产品系列\*\*\s*:\s*(.+)', text)
+        series = series_match2.group(1).strip() if series_match2 else ""
+    if not series:
+        # 产品系列前缀映射表（床和床垫通用）
+        SERIES_PREFIX_MAP = {
+            "ZX": "智享系列",
+            "YS": "悦尚系列",
+            "JD": "经典系列",
+            "HS": "惠尚系列",
+            "ZW": "智享卧室系列",
+            "BY": "百艳系列",
+        }
+        prefix = model.split('.')[0] if '.' in model else model[:2]
+        series = SERIES_PREFIX_MAP.get(prefix.upper(), "")
 
     # 产品特点/卖点（取前 3 条）
     features = []
@@ -244,15 +260,49 @@ def _parse_md_product(filepath, rel_path):
             if line.strip().startswith(("- ", "* ")):
                 features.append(line.strip()[2:])
             elif line.strip() == "":
+                continue  # 跳过空行，继续收集
+            elif line.startswith("##"):
                 if features:
                     break
-            elif line.startswith("##") or line.startswith("###"):
-                if features:
-                    break
+            elif line.startswith("###"):
+                continue  # 跳过子标题，继续收集下方的列表项
+
+    # 核心卖点结构化数据（床垫用：按子章节分组）
+    core_selling_points = []
+    csp_oneliner = ""
+    csp_match = re.search(r'## 产品核心卖点\s*\n(.*?)(?=\n##\s|\Z)', text, re.DOTALL)
+    if csp_match:
+        csp_content = csp_match.group(1).strip()
+        # 提取一句话
+        oneliner_match = re.search(r'\*\*一句话\*\*[:：](.+)', csp_content)
+        csp_oneliner = oneliner_match.group(1).strip() if oneliner_match else ""
+        # 提取各子章节（### 标题 + 描述 + 列表项）
+        # 先按 ### 分割成各段
+        sections_raw = re.split(r'\n###\s+', csp_content)
+        for sec_raw in sections_raw[1:]:  # 跳过第一个（一句话所在的段）
+            lines = sec_raw.strip().split('\n')
+            if not lines:
+                continue
+            sec_title = lines[0].strip()
+            items = []
+            for line in lines[1:]:
+                stripped = line.strip()
+                if stripped.startswith(('- ', '* ')):
+                    items.append(stripped[2:])
+            if items:
+                core_selling_points.append({"title": sec_title, "items": items})
 
     # 一句话价值塑造
     value_match = re.search(r'### 一句话价值塑造\s*\n+\s*(.+?)(?:\n|$)', text)
     tagline = value_match.group(1).strip() if value_match else ""
+
+    # 产品故事/升级故事（床垫常用）
+    product_story = ""
+    story_match = re.search(r'## (?:产品故事|升级故事)\s*\n(.*?)(?=\n##\s|\Z)', text, re.DOTALL)
+    if story_match:
+        product_story = story_match.group(1).strip()
+        # 去除 ** 粗体标记
+        product_story = re.sub(r'\*\*([^*]+)\*\*', r'\1', product_story)
 
 # 配色 & 色号 & 材质
     colors = []
@@ -297,8 +347,30 @@ def _parse_md_product(filepath, rel_path):
 
     # 价格：从规格价格表提取（精确可靠，替换旧的全文档正则）
     price_rows, table_prices = _extract_price_rows(text, category, max_rows=30)
-    min_price = min(table_prices) if table_prices else 0
-    max_price = max(table_prices) if table_prices else 0
+    
+    # 沙发：区分组合规格和单组件规格，最低价按组合规格计算
+    combo_prices = []  # 组合规格价格（含"+"的规格，如"1左电动+1右电动"）
+    single_price_rows = []  # 单组件规格行
+    combo_price_rows = []  # 组合规格行
+    if category == "沙发" and price_rows:
+        for pr in price_rows:
+            spec = pr.split(" → ")[0] if " → " in pr else pr
+            # 判断是否为组合规格：包含 "+" 或 "小3双"/"3双"/"大3双"等组合描述
+            if "+" in spec or re.search(r'\d双|组合|转角|贵妃', spec):
+                combo_price_rows.append(pr)
+                # 提取价格
+                pm = re.search(r'¥([\d,]+)', pr)
+                if pm:
+                    combo_prices.append(int(pm.group(1).replace(',', '')))
+            else:
+                single_price_rows.append(pr)
+    
+    if category == "沙发" and combo_prices:
+        min_price = min(combo_prices)
+        max_price = max(combo_prices)
+    else:
+        min_price = min(table_prices) if table_prices else 0
+        max_price = max(table_prices) if table_prices else 0
 
     # 沙发：提取所有长度（从规格尺寸表）
     lengths = []
@@ -432,9 +504,24 @@ def _parse_md_product(filepath, rel_path):
 
     # 产品配置（床垫专用）：含面料层/填充层/支撑层等
     product_config = ""
+    product_config_lines = []
     config_match = re.search(r'\*\*产品配置\*\*:\s*\n((?:  .+\n?)+)', text)
     if config_match:
-        product_config = config_match.group(1).strip().replace('\n  ', ' | ')
+        raw_config = config_match.group(1).strip()
+        product_config_lines = [l.strip() for l in raw_config.split('\n') if l.strip()]
+        product_config = ' | '.join(product_config_lines)
+
+    # 睡感等级（床垫专用）
+    sleep_level = ""
+    sleep_match = re.search(r'\*\*睡感等级\*\*\s*:\s*(.+)', text)
+    if sleep_match:
+        sleep_level = sleep_match.group(1).strip()
+
+    # 床垫高度
+    mattress_height = ""
+    mh_match = re.search(r'\*\*床垫高度\*\*\s*:\s*(.+)', text)
+    if mh_match:
+        mattress_height = mh_match.group(1).strip()
 
     # 靠包类型（床架专用）：上下左右分段式/仅上下分段式/仅左右分段式/整体无分段/无床头
     headboard_type = ""
@@ -479,7 +566,10 @@ def _parse_md_product(filepath, rel_path):
         "category": category,
         "series": series,
         "tagline": tagline[:80],
+        "product_story": product_story,
         "features": features[:3],
+        "core_selling_points": core_selling_points,
+        "csp_oneliner": csp_oneliner,
 "colors": colors,
         "color_codes": color_codes[:3],
         "color_tone": color_tone,
@@ -490,6 +580,8 @@ def _parse_md_product(filepath, rel_path):
         "bed_frame_height": bed_frame_height,
         "mattress_thickness": mattress_thickness,
         "price_rows": price_rows,
+        "combo_price_rows": combo_price_rows if category == "沙发" else [],
+        "single_price_rows": single_price_rows if category == "沙发" else [],
         "design_style": design_style,
         "sofa_dimensions": sofa_dimensions,
         "sofa_components": sofa_components,
@@ -499,6 +591,9 @@ def _parse_md_product(filepath, rel_path):
         "bed_head_width": bed_head_width,
         "material": material,
         "product_config": product_config,
+        "product_config_lines": product_config_lines,
+        "sleep_level": sleep_level,
+        "mattress_height": mattress_height,
         "headboard_type": headboard_type,
         "good_looks": good_looks,
         "good_comfort": good_comfort,
@@ -513,7 +608,7 @@ def _parse_md_product(filepath, rel_path):
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
-def build_product_index_v3(_version="v14_pricefix"):
+def build_product_index_v3(_version="v16_comp_more"):
     """扫描所有 md 文件，构建可搜索的产品索引（_version 强制缓存刷新）"""
     index = {}
     if not os.path.exists(MD_DB_DIR):
@@ -838,6 +933,25 @@ def _load_resized_image(img_path, max_width=800, quality=80):
         return img
     except Exception:
         return None
+
+
+def _img_to_base64_thumb(img_path, max_width=300, quality=75):
+    """生成图片缩略图的 base64 data URI，用于卡片内嵌"""
+    if not img_path or not os.path.exists(img_path):
+        return ""
+    try:
+        img = Image.open(img_path)
+        if img.width > max_width:
+            ratio = max_width / img.width
+            new_height = int(img.height * ratio)
+            img = img.resize((max_width, new_height), Image.LANCZOS)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
+    except Exception:
+        return ""
 
 
 def _get_product_image(model, images_db):
@@ -1612,6 +1726,67 @@ st.markdown("""
     .stButton>button { width:100%; background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%); color:#fff; border-radius:8px; border:none; padding:0.6rem 1rem; font-weight:600; font-size:1rem; box-shadow:0 4px 10px rgba(37,99,235,0.2); }
     .stButton>button:hover { background:linear-gradient(135deg,#1d4ed8 0%,#1e40af 100%); box-shadow:0 6px 15px rgba(37,99,235,0.3); }
     section[data-testid="stSidebar"] { background-color:#fff; border-right:1px solid #e2e8f0; }
+    
+    /* ===== 产品卡片样式 ===== */
+    .pd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin: 16px 0; }
+    .pd-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.04); border: 1px solid #e2e8f0; overflow: hidden; transition: all 0.2s ease; }
+    .pd-card:hover { box-shadow: 0 8px 24px rgba(15,23,42,0.1), 0 2px 6px rgba(15,23,42,0.06); transform: translateY(-2px); }
+    .pd-head { padding: 14px 16px 10px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pd-cat { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #fff; }
+    .pd-cat.sofa { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+    .pd-cat.bed { background: linear-gradient(135deg, #ec4899, #f472b6); }
+    .pd-cat.mattress { background: linear-gradient(135deg, #10b981, #34d399); }
+    .pd-cat.table { background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #78350f; }
+    .pd-model { font-size: 14px; font-weight: 700; color: #0f172a; }
+    .pd-name { font-size: 13px; color: #64748b; }
+    .pd-series { font-size: 11px; color: #94a3b8; margin-left: auto; }
+    .pd-price { padding: 12px 16px; background: linear-gradient(135deg, #fef2f2, #fff1f2); border-bottom: 1px solid #fecaca; }
+    .pd-price .pl { font-size: 11px; color: #94a3b8; margin-right: 6px; }
+    .pd-price .pv { font-size: 22px; font-weight: 800; color: #dc2626; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: -0.5px; }
+    .pd-price .pv small { font-size: 13px; font-weight: 600; }
+    .pd-body { padding: 12px 16px 16px; }
+    .pd-info { font-size: 12px; color: #475569; line-height: 1.9; }
+    .pd-info .k { color: #94a3b8; font-size: 11px; }
+    .pd-info .v { color: #334155; font-weight: 500; }
+    .pd-spec-tag { display: inline-block; padding: 2px 8px; background: #f1f5f9; color: #475569; border-radius: 4px; font-size: 11px; margin: 2px 4px 2px 0; }
+    .pd-room-tag { display: inline-block; padding: 2px 8px; background: #eff6ff; color: #2563eb; border-radius: 4px; font-size: 11px; font-weight: 500; margin-right: 4px; }
+    .pd-section-title { font-size: 12px; font-weight: 600; color: #0f172a; margin: 10px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #f1f5f9; }
+    .pd-price-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 6px 0; }
+    .pd-price-table th { background: #f8fafc; color: #64748b; font-weight: 500; text-align: left; padding: 5px 8px; border-bottom: 1px solid #e2e8f0; }
+    .pd-price-table td { padding: 4px 8px; border-bottom: 1px solid #f1f5f9; color: #475569; }
+    .pd-price-table td.pd-td-price { color: #dc2626; font-weight: 600; text-align: right; }
+    .pd-features { margin: 6px 0; font-size: 11px; color: #475569; line-height: 1.7; }
+    .pd-features li { margin: 0; padding-left: 4px; list-style: none; position: relative; }
+    .pd-features li::before { content: "✦"; color: #3b82f6; font-size: 9px; margin-right: 5px; }
+    .pd-goods { display: flex; gap: 6px; margin: 8px 0 4px; flex-wrap: wrap; }
+    .pd-good-tag { flex: 1; min-width: 70px; padding: 4px 6px; border-radius: 6px; font-size: 10px; text-align: center; font-weight: 500; }
+    .pd-good-tag.g1 { background: #fef3c7; color: #92400e; }
+    .pd-good-tag.g2 { background: #dcfce7; color: #166534; }
+    .pd-good-tag.g3 { background: #dbeafe; color: #1e40af; }
+    .pd-imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+    .pd-img-item { position: relative; border-radius: 6px; overflow: hidden; background: #f1f5f9; aspect-ratio: 4/3; }
+    .pd-img-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pd-img-label { position: absolute; bottom: 0; left: 0; right: 0; padding: 3px 6px; font-size: 10px; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,0.6)); }
+    .pd-img-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #cbd5e1; font-size: 10px; }
+    .pd-tagline { font-size: 11px; color: #64748b; font-style: italic; margin: 4px 0 0; padding: 6px 8px; background: #f8fafc; border-left: 3px solid #3b82f6; border-radius: 0 4px 4px 0; line-height: 1.5; }
+    .pd-price-range { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+    .pd-price-range strong { color: #dc2626; font-weight: 600; }
+    .pd-more-specs { margin-top: 4px; }
+    .pd-more-specs summary { list-style: none; cursor: pointer; font-size: 10px; color: #3b82f6; text-align: right; padding: 2px 4px; }
+    .pd-more-specs summary::before { content: "▾ 查看更多规格"; }
+    .pd-more-specs[open] summary::before { content: "▴ 收起"; }
+    .pd-more-info { margin-top: 6px; }
+    .pd-more-info summary { list-style: none; cursor: pointer; font-size: 11px; color: #3b82f6; text-align: center; padding: 6px 8px; background: #eff6ff; border-radius: 6px; font-weight: 500; }
+    .pd-more-info summary::before { content: "▾ 查看更多信息"; }
+    .pd-more-info[open] summary::before { content: "▴ 收起信息"; }
+    .pd-good-content { font-size: 10px; color: #64748b; line-height: 1.6; margin-top: 4px; padding: 6px 8px; background: #f8fafc; border-radius: 4px; }
+    .pd-good-content .gc-title { font-weight: 600; color: #334155; font-size: 11px; margin-bottom: 2px; }
+    .pd-color-chip { display: inline-block; padding: 2px 6px; margin: 1px 3px 1px 0; font-size: 10px; border-radius: 3px; background: #f1f5f9; color: #475569; font-family: monospace; }
+    .pd-color-chip .cn { font-family: inherit; color: #64748b; margin-left: 2px; }
+    .pd-card-wrapper { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.04); border: 1px solid #e2e8f0; overflow: hidden; margin-bottom: 16px; }
+    .pd-card-wrapper:hover { box-shadow: 0 8px 24px rgba(15,23,42,0.1); }
+    .pd-imgs-st { padding: 0 12px 12px; }
+    .pd-imgs-label { font-size: 11px; color: #64748b; margin: 0 0 6px; font-weight: 500; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1908,15 +2083,69 @@ with main_tab1:
         5. ⚠️ **价格必须使用候选产品中标注的真实价格**，不得自行编造。
 
 【输出格式要求】：
-- 严格使用 **Markdown 纯文本** 格式输出，**禁止输出任何 HTML 代码**（包括 <div>、<img>、<table> 等标签）
-- **禁止嵌入任何 base64 图片或图片 data URI**，图片由系统自动展示
-- 使用标准 Markdown 语法：标题用 #、列表用 - 或 1.、加粗用 **、表格用 |---| 格式
-- 产品清单使用 Markdown 表格呈现，不要使用 HTML <table>
+- 产品推荐清单部分使用 **HTML 卡片** 形式呈现，**必须严格按照下方卡片模板的 CSS 类名和结构生成**
+- **严禁嵌入任何 base64 图片或图片 data URI**，产品图片由系统自动在下方展示
+- 除产品清单外的其余内容（分析、建议、汇总等）使用标准 Markdown 语法
+- 价格必须使用候选产品中标注的真实价格，不得自行编造
+
+【产品卡片 CSS 样式（自动注入页面，你只需使用以下类名）】：
+.pd-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin: 16px 0; }}
+.pd-card {{ background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.04); border: 1px solid #e2e8f0; overflow: hidden; transition: box-shadow 0.2s ease; }}
+.pd-card:hover {{ box-shadow: 0 8px 24px rgba(15,23,42,0.1), 0 2px 6px rgba(15,23,42,0.06); }}
+.pd-head {{ padding: 14px 16px 10px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
+.pd-cat {{ display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #fff; }}
+.pd-cat.sofa {{ background: linear-gradient(135deg, #6366f1, #8b5cf6); }}
+.pd-cat.bed {{ background: linear-gradient(135deg, #ec4899, #f472b6); }}
+.pd-cat.mattress {{ background: linear-gradient(135deg, #10b981, #34d399); }}
+.pd-cat.table {{ background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #78350f; }}
+.pd-model {{ font-size: 14px; font-weight: 700; color: #0f172a; }}
+.pd-name {{ font-size: 13px; color: #64748b; }}
+.pd-series {{ font-size: 11px; color: #94a3b8; margin-left: auto; }}
+.pd-price {{ padding: 12px 16px; background: linear-gradient(135deg, #fef2f2, #fff1f2); border-bottom: 1px solid #fecaca; }}
+.pd-price .pl {{ font-size: 11px; color: #94a3b8; margin-right: 6px; }}
+.pd-price .pv {{ font-size: 22px; font-weight: 800; color: #dc2626; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: -0.5px; }}
+.pd-price .pv small {{ font-size: 13px; font-weight: 600; }}
+.pd-body {{ padding: 12px 16px 16px; }}
+.pd-info {{ font-size: 12px; color: #475569; line-height: 1.8; }}
+.pd-info .k {{ color: #94a3b8; font-size: 11px; }}
+.pd-info .v {{ color: #334155; font-weight: 500; }}
+.pd-spec-tag {{ display: inline-block; padding: 2px 8px; background: #f1f5f9; color: #475569; border-radius: 4px; font-size: 11px; margin: 2px 4px 2px 0; }}
+.pd-room-tag {{ display: inline-block; padding: 2px 8px; background: #eff6ff; color: #2563eb; border-radius: 4px; font-size: 11px; font-weight: 500; margin-right: 4px; }}
+
+【产品卡片 HTML 模板（必须严格按此结构生成，类名不可更改）】：
+<div class="pd-card">
+    <div class="pd-head">
+        <span class="pd-cat bed">床架</span>
+        <span class="pd-model">ZX.B721FQ1</span>
+        <span class="pd-name">朗悦</span>
+        <span class="pd-series">智享系列</span>
+    </div>
+    <div class="pd-price">
+        <span class="pl">成交价</span>
+        <span class="pv">¥2,399 <small>起</small></span>
+    </div>
+    <div class="pd-body">
+        <div class="pd-info">
+            <div><span class="pd-room-tag">主卧</span> <span class="pd-spec-tag">201*151</span> <span class="pd-spec-tag">齐边排骨条</span></div>
+            <div><span class="k">床身高</span> <span class="v">31cm</span> ｜ <span class="k">适配床垫</span> <span class="v">20-28cm</span></div>
+            <div><span class="k">靠包</span> <span class="v">无床头</span> ｜ <span class="k">配色</span> <span class="v">黑武士、菊蕊白</span></div>
+        </div>
+    </div>
+</div>
+
+【卡片使用规则】：
+1. 所有产品卡片必须包裹在 `<div class="pd-grid">...</div>` 容器中
+2. 品类 class 对应：沙发用 pd-cat sofa、床架用 pd-cat bed、床垫用 pd-cat mattress、配套用 pd-cat table
+3. 价格只有一个价位时直接显示（如 ¥2,599），有区间时显示"¥2,399 起"或"¥4,499 ~ ¥5,499"
+4. 规格使用 span.pd-spec-tag 标签展示关键规格（如尺寸、款式等）
+5. 如果是某个卧室的配置，加上 span.pd-room-tag 标签（如"主卧"、"次卧"）
+6. 严禁在卡片中使用 <img> 标签或嵌入 base64 图片
 
 【输出结构】：
 一、空间尺寸与气场碰撞分析
-二、全屋推荐产品清单与报价明细（**每个产品必须注明具体规格/组合名称、实际成交价**）
-    请在推荐清单后附上 **逐项价格计算过程**，确认各品类在预算分配内、总价不超过 ¥{total_budget:,}。
+二、全屋推荐产品清单与报价明细
+    - 每个品类先用一行文字说明选择理由，然后用 HTML 卡片展示推荐产品
+    - 卡片后附上 **逐项价格计算过程**，确认各品类在预算分配内、总价不超过 ¥{total_budget:,}
 三、价格汇总与预算控制说明
 四、科学睡眠理念与健康生活场景建议"""
 
@@ -2109,7 +2338,7 @@ with main_tab1:
 4. 💰 **总价控制**：推荐方案总价不得超过预算 ¥{_total_budget:,}，必须在输出中逐项列出价格并累加确认。
 5. 🔄 **预算调整规则**：客户要求调整预算分配时（如"主卧降到13000"），必须从候选产品中重新选择符合新预算的产品，而不是拒绝或返回空方案。候选产品中低价格区间的产品完全可以在新预算下完成搭配。
 6. 输出格式与原方案一致，保留完整报告结构（尺寸分析、产品清单、价格汇总、睡眠建议等）。
-7. **输出格式严格要求**：使用 Markdown 纯文本，禁止输出任何 HTML 代码（<div>、<img>、<table> 等），禁止嵌入 base64 图片。"""
+7. **输出格式严格要求**：产品清单使用 HTML 卡片（类名：pd-card、pd-grid、pd-cat bed/sofa/mattress/table、pd-price、pv 红色成交价），禁止嵌入 base64 图片，其他内容用 Markdown。"""
                     try:
                         st.info("🤖 AI 正在根据您的意见调整方案...")
                         new_report = st.write_stream(stream_response(api_key, model_name, edit_prompt, f"客户修改意见：{edit_instruction}"))
@@ -2217,24 +2446,12 @@ with main_tab2:
             tone_idx = tone_options.index(st.session_state.f_tone) if st.session_state.f_tone in tone_options else 0
             sel_tone = st.selectbox("色调归类", tone_options, index=tone_idx, key="input_sel_tone")
 
-        f_col5, f_col6, f_col7, f_col8 = st.columns(4)
+        f_col5, f_col6 = st.columns(2)
         with f_col5:
-            price_range = st.slider("最高成交价上限 (元)", min_value=1000, max_value=50000, value=st.session_state.f_max_p, step=1000, key="input_price_range")
-        with f_col6:
-            headboard_limit = st.number_input("床头高度上限 (cm, 0为不限)", min_value=0, max_value=200, value=st.session_state.f_max_h, step=5, key="input_headboard_limit")
-        with f_col7:
-            bed_len_limit = st.number_input("床总长度上限 (cm, 0为不限)", min_value=0, max_value=260, value=st.session_state.f_max_blen, step=5, key="input_bed_len_limit")
-        with f_col8:
             sort_order = st.selectbox("结果排序方式", ["价格从低到高", "价格从高到低", "型号名称排序"], key="input_sort_order")
-
-        f_col9, f_col10, f_col11, f_col12 = st.columns([1, 1, 1, 1])
-        with f_col9:
+        with f_col6:
             series_idx = series_options.index(st.session_state.f_series) if st.session_state.f_series in series_options else 0
             sel_series = st.selectbox("产品系列", series_options, index=series_idx, key="input_sel_series")
-        with f_col10:
-            sofa_br_limit = st.number_input("沙发靠背高度上限 (cm, 0为不限)", min_value=0, max_value=150, value=st.session_state.f_max_sofa_br, step=5, key="input_sofa_br_limit")
-        with f_col11:
-            bed_width_limit = st.number_input("床头宽度上限 (cm, 0为不限)", min_value=0, max_value=300, value=st.session_state.f_max_bw, step=5, key="input_bed_width_limit")
 
         # --- 查询按钮 ---
         col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
@@ -2243,14 +2460,15 @@ with main_tab2:
                 # 将表单值同步到 session_state
                 st.session_state.f_kw = search_kw
                 st.session_state.f_cat = sel_cat
-                st.session_state.f_max_p = price_range
-                st.session_state.f_max_h = headboard_limit
-                st.session_state.f_max_blen = bed_len_limit
-                st.session_state.f_max_sofa_br = sofa_br_limit
-                st.session_state.f_max_bw = bed_width_limit
                 st.session_state.f_style = sel_style
                 st.session_state.f_tone = sel_tone
                 st.session_state.f_series = sel_series
+                # 数值筛选统一通过自然语言搜索提取，面板中不手动设置
+                st.session_state.f_max_p = 50000
+                st.session_state.f_max_h = 0
+                st.session_state.f_max_blen = 0
+                st.session_state.f_max_sofa_br = 0
+                st.session_state.f_max_bw = 0
                 st.session_state.f_do_search = True
                 st.rerun()
 
@@ -2449,7 +2667,7 @@ with main_tab2:
         if _kw:
             _log_query("fast_local_search", {"kw": _kw, "cat": st.session_state.f_cat, "count": len(final_results)})
 
-    # --- 5. 结果展示（直观卡片 + 对应图片） ---
+    # --- 5. 结果展示（精美卡片网格） ---
     if st.session_state.f_results is not None:
         final_results = st.session_state.f_results
         search_ms = st.session_state.f_search_ms
@@ -2462,159 +2680,414 @@ with main_tab2:
             st.info(f"🔍 从搜索文本自动识别约束: {' · '.join(st.session_state.f_auto_constraints)}")
 
         if not final_results:
-            st.warning("⚠️ 没有找到符合条件的产品，请尝试放大价格范围或重置筛选条件。")
+            st.warning("⚠️ 没有找到符合条件的产品，请尝试调整筛选条件。")
         else:
-            for p in final_results:
-                model = p.get("model", "")
-                name = p.get("name", "")
-                cat = p.get("category", "")
-                min_p = p.get("min_price", 0)
-                max_p = p.get("max_price", 0)
-                tagline = p.get("tagline", "")
-                series = p.get("series", "")
-
-                # 卡片标题
-                card_title = f"【{cat}】{model} {name} | 价格: ¥{min_p:,} ~ ¥{max_p:,}"
-                if tagline:
-                    card_title += f" | {tagline[:30]}"
-
-                with st.expander(card_title, expanded=False):
-                    col_info, col_imgs = st.columns([1.1, 1], gap="medium")
-
-                    # 左侧：详细属性与规格
-                    with col_info:
-                        st.markdown(f"#### 📌 {model} {name}")
-                        st.markdown(f"**品类**: `{cat}` | **系列**: `{series if series else '标准'}` | **风格**: `{p.get('design_style', '通用')}`")
-                        st.markdown(f"**色调**: `{p.get('color_tone', '深色系')}` | **可选配色**: {', '.join(p.get('colors', [])) if p.get('colors') else '详见出样色'}")
-
-                        # 一句话价值塑造
-                        if p.get("tagline"):
-                            st.markdown(f"> 💬 *{p['tagline']}*")
-
-                        # 三好信息（可折叠）
-                        has_goods = p.get("good_looks") or p.get("good_comfort") or p.get("good_quality")
-                        if has_goods:
-                            with st.expander("🌟 三好卖点（好看 · 好舒适 · 好品质）", expanded=False):
-                                if p.get("good_looks"):
-                                    st.markdown("**🎨 好看**")
-                                    st.markdown(p["good_looks"])
-                                if p.get("good_comfort"):
-                                    st.markdown("**🛋️ 好舒适**")
-                                    st.markdown(p["good_comfort"])
-                                if p.get("good_quality"):
-                                    st.markdown("**🔧 好品质**")
-                                    st.markdown(p["good_quality"])
-
-                        # 核心卖点
-                        if p.get("features"):
-                            st.markdown("**核心卖点**:")
-                            for ft in p["features"]:
-                                st.markdown(f"- {ft}")
-
-                        # 分品类尺寸属性展示
-                        if cat == "沙发":
-                            if p.get("lengths"):
-                                st.markdown(f"**组合可选长度(cm)**: {', '.join(str(l) for l in p['lengths'])}")
-                            if p.get("sofa_dimensions"):
-                                dims = p["sofa_dimensions"]
-                                dim_str = " | ".join(f"{k}: {v}cm" for k, v in dims.items())
-                                st.markdown(f"**尺寸详解**: {dim_str}")
-                            if p.get("sofa_components"):
-                                comps = p["sofa_components"]
-                                comp_str = " | ".join(f"{k}: {v}cm" for k, v in comps.items())
-                                st.markdown(f"**组件尺寸**: {comp_str}")
-
-                        elif cat == "床架":
-                            if p.get("bed_total_length") or p.get("bed_head_width") or p.get("bed_head_height"):
-                                st.markdown(f"**外尺寸(cm)**: 总长 `{p.get('bed_total_length',0)}` | 床头宽 `{p.get('bed_head_width',0)}` | 床头高 `{p.get('bed_head_height',0)}`")
-                            # 提取所有可选规格，展示可选尺寸范围
-                            if p.get("price_rows"):
-                                all_specs = []
-                                for pr in p["price_rows"]:
-                                    spec = pr.split(" → ")[0] if " → " in pr else ""
-                                    if spec and spec not in all_specs:
-                                        all_specs.append(spec)
-                                if all_specs:
-                                    st.markdown(f"**可选规格(内径)**: {', '.join(all_specs)}")
-                            if p.get("bed_frame_height"):
-                                st.markdown(f"**床身离地高**: `{p.get('bed_frame_height')}cm` | **适配床垫厚度**: `{p.get('mattress_thickness', '常规')}`")
-                            if p.get("headboard_type"):
-                                st.markdown(f"**靠包类型**: `{p.get('headboard_type')}`")
-
-                        elif cat in ("床垫", "配套"):
-                            if p.get("material"):
-                                st.markdown(f"**面料/材质**: {p.get('material')}")
-                            if p.get("product_config"):
-                                st.markdown(f"**产品配置**: {p.get('product_config')}")
-
-                        # 规格与成交价明细表
-                        if p.get("price_rows"):
-                            st.markdown("**📋 规格与成交价明细**:")
-                            # 构建markdown表格
-                            table_lines = ["| 规格 | 尺寸 | 成交价 |", "|------|------|-------:|"]
-                            for pr in p["price_rows"]:
-                                # 格式: "201*121 → 206×121×31, ¥2,599"
-                                parts = pr.split(" → ", 1)
-                                if len(parts) == 2:
-                                    spec = parts[0]
-                                    rest = parts[1]
-                                    # 拆出尺寸和价格
-                                    price_match = re.search(r'(.*), (¥[\d,]+)', rest)
-                                    if price_match:
-                                        size = price_match.group(1)
-                                        price = price_match.group(2)
-                                        table_lines.append(f"| {spec} | {size} | {price} |")
-                                    else:
-                                        table_lines.append(f"| {spec} | {rest} | |")
-                                else:
-                                    table_lines.append(f"| {pr} | | |")
-                            st.markdown("\n".join(table_lines))
-
-                    # 右侧：精准匹配本地图片库
-                    with col_imgs:
+            # 卡片网格：每行3列，使用 Streamlit columns + HTML 卡片内容
+            cols_per_row = 3
+            for row_idx in range(0, len(final_results), cols_per_row):
+                row_products = final_results[row_idx:row_idx + cols_per_row]
+                cols = st.columns(cols_per_row)
+                
+                for col_idx, p in enumerate(row_products):
+                    with cols[col_idx]:
+                        model = p.get("model", "")
+                        name = p.get("name", "")
+                        cat = p.get("category", "")
+                        min_p = p.get("min_price", 0)
+                        max_p = p.get("max_price", 0)
+                        series = p.get("series", "")
+                        tagline = p.get("tagline", "")
+                        features = p.get("features", [])
+                        good_looks = p.get("good_looks", "")
+                        good_comfort = p.get("good_comfort", "")
+                        good_quality = p.get("good_quality", "")
+                        good_looks_text = p.get("good_looks_text", "")
+                        good_comfort_text = p.get("good_comfort_text", "")
+                        good_quality_text = p.get("good_quality_text", "")
+                        colors = p.get("colors", [])
+                        color_codes = p.get("color_codes", [])
+                        price_rows = p.get("price_rows", [])
+                        
+                        # 品类 CSS 类
+                        cat_class = {"沙发": "sofa", "床架": "bed", "床垫": "mattress", "配套": "table"}.get(cat, "bed")
+                        series_display = series if series else "标准系列"
+                        
+                        # 价格显示
+                        if min_p == 0 and max_p == 0:
+                            price_main = '<span class="pl">价格</span><span class="pv">待询</span>'
+                            price_range_html = ''
+                        elif min_p == max_p:
+                            price_main = f'<span class="pl">成交价</span><span class="pv">¥{min_p:,}</span>'
+                            price_range_html = ''
+                        else:
+                            price_main = f'<span class="pl">成交价</span><span class="pv">¥{min_p:,} <small>起</small></span>'
+                            price_range_html = f'<div class="pd-price-range">价格区间：<strong>¥{min_p:,} ~ ¥{max_p:,}</strong>（共{len(price_rows)}个规格）</div>'
+                        
+                        # 查找匹配图片
                         matching_img_dict = None
                         model_upper = model.upper()
                         for fk, idict in images_db.items():
                             if model_upper in fk.upper() or fk.upper() in model_upper:
                                 matching_img_dict = idict
                                 break
-
+                        
+                        # ===== 组装卡片 HTML 内容 =====
+                        html_parts = []
+                        html_parts.append('<div class="pd-card-wrapper">')
+                        html_parts.append('<div class="pd-card" style="border:none;box-shadow:none;margin:0;">')
+                        
+                        # 头部
+                        html_parts.append('<div class="pd-head">')
+                        html_parts.append(f'<span class="pd-cat {cat_class}">{cat}</span>')
+                        html_parts.append(f'<span class="pd-model">{model}</span>')
+                        html_parts.append(f'<span class="pd-name">{name}</span>')
+                        html_parts.append(f'<span class="pd-series">{series_display}</span>')
+                        html_parts.append('</div>')
+                        
+                        # 价格条 + 价格区间
+                        html_parts.append('<div class="pd-price">')
+                        html_parts.append(price_main)
+                        html_parts.append(price_range_html)
+                        html_parts.append('</div>')
+                        
+                        # 正文开始
+                        html_parts.append('<div class="pd-body">')
+                        
+                        # 一句话价值塑造
+                        if tagline:
+                            html_parts.append(f'<div class="pd-tagline">💬 {tagline}</div>')
+                        elif cat == "床垫" and p.get("csp_oneliner"):
+                            html_parts.append(f'<div class="pd-tagline">💬 {p["csp_oneliner"]}</div>')
+                        
+                        # ⭐ 核心卖点（放在规格前面）
+                        if features:
+                            html_parts.append('<div class="pd-section-title">⭐ 核心卖点</div>')
+                            # 床垫：显示结构化分章节卖点
+                            if cat == "床垫" and p.get("core_selling_points"):
+                                csp = p["core_selling_points"]
+                                for section in csp:
+                                    html_parts.append(f'<div style="font-weight:600;color:#333;margin:6px 0 3px;font-size:13px;">{section["title"]}</div>')
+                                    html_parts.append('<ul class="pd-features" style="margin-top:2px;">')
+                                    for item in section["items"]:
+                                        # 去除 ** 标记，保留内容
+                                        clean_item = re.sub(r'\*\*([^*]+)\*\*', r'\1', item)
+                                        html_parts.append(f'<li style="font-size:12px;line-height:1.5;">{clean_item}</li>')
+                                    html_parts.append('</ul>')
+                            else:
+                                html_parts.append('<ul class="pd-features">')
+                                for ft in features[:3]:
+                                    ft_short = ft[:32] + "…" if len(ft) > 32 else ft
+                                    html_parts.append(f'<li>{ft_short}</li>')
+                                html_parts.append('</ul>')
+                        
+                        # 📋 规格与成交价明细表（沙发显示组合规格，其他品类显示全部）
+                        display_price_rows = p.get("combo_price_rows", []) if cat == "沙发" and p.get("combo_price_rows") else price_rows
+                        if display_price_rows:
+                            html_parts.append('<div class="pd-section-title">📋 规格与成交价</div>')
+                            html_parts.append('<table class="pd-price-table"><thead><tr><th>规格</th><th>尺寸</th><th style="text-align:right">成交价</th></tr></thead><tbody>')
+                            
+                            # 前4条显示
+                            for pr in display_price_rows[:4]:
+                                parts = pr.split(" → ", 1)
+                                if len(parts) == 2:
+                                    spec = parts[0]
+                                    rest = parts[1]
+                                    price_match = re.search(r'(.*), (¥[\d,]+)', rest)
+                                    if price_match:
+                                        size = price_match.group(1)
+                                        price = price_match.group(2)
+                                        html_parts.append(f'<tr><td>{spec}</td><td>{size}</td><td class="pd-td-price">{price}</td></tr>')
+                                    else:
+                                        html_parts.append(f'<tr><td>{spec}</td><td>{rest}</td><td class="pd-td-price">-</td></tr>')
+                                else:
+                                    html_parts.append(f'<tr><td colspan="3">{pr}</td></tr>')
+                            
+                            # 剩余规格放下拉里
+                            if len(display_price_rows) > 4:
+                                html_parts.append('</tbody></table>')
+                                html_parts.append('<details class="pd-more-specs"><summary></summary>')
+                                html_parts.append('<table class="pd-price-table" style="margin-top:0;"><tbody>')
+                                for pr in display_price_rows[4:]:
+                                    parts = pr.split(" → ", 1)
+                                    if len(parts) == 2:
+                                        spec = parts[0]
+                                        rest = parts[1]
+                                        price_match = re.search(r'(.*), (¥[\d,]+)', rest)
+                                        if price_match:
+                                            size = price_match.group(1)
+                                            price = price_match.group(2)
+                                            html_parts.append(f'<tr><td>{spec}</td><td>{size}</td><td class="pd-td-price">{price}</td></tr>')
+                                        else:
+                                            html_parts.append(f'<tr><td>{spec}</td><td>{rest}</td><td class="pd-td-price">-</td></tr>')
+                                    else:
+                                        html_parts.append(f'<tr><td colspan="3">{pr}</td></tr>')
+                                html_parts.append('</tbody></table></details>')
+                            else:
+                                html_parts.append('</tbody></table>')
+                            
+                            # 沙发：下方提示有单组件规格
+                            if cat == "沙发" and p.get("single_price_rows"):
+                                single_count = len(p["single_price_rows"])
+                                html_parts.append(f'<div style="font-size:10px;color:#94a3b8;margin-top:2px;">💡 另有 {single_count} 款单组件规格，可自由组合</div>')
+                        
+                        # 📐 产品信息
+                        html_parts.append('<div class="pd-section-title">📐 产品信息</div>')
+                        html_parts.append('<div class="pd-info">')
+                        
+                        if cat == "床架":
+                            dims_items = []
+                            if p.get("bed_head_height"):
+                                dims_items.append(f'<span class="k">床头高</span> <span class="v">{p["bed_head_height"]}cm</span>')
+                            if p.get("bed_total_length"):
+                                dims_items.append(f'<span class="k">总长</span> <span class="v">{p["bed_total_length"]}cm</span>')
+                            if p.get("bed_head_width"):
+                                dims_items.append(f'<span class="k">床宽</span> <span class="v">{p["bed_head_width"]}cm</span>')
+                            if dims_items:
+                                html_parts.append("<div>" + " ｜ ".join(dims_items) + "</div>")
+                            
+                            extra_items = []
+                            if p.get("bed_frame_height"):
+                                extra_items.append(f'<span class="k">床身高</span> <span class="v">{p["bed_frame_height"]}cm</span>')
+                            if p.get("mattress_thickness"):
+                                extra_items.append(f'<span class="k">适配床垫</span> <span class="v">{p["mattress_thickness"]}</span>')
+                            if p.get("headboard_type"):
+                                extra_items.append(f'<span class="k">靠包</span> <span class="v">{p["headboard_type"]}</span>')
+                            if extra_items:
+                                html_parts.append("<div>" + " ｜ ".join(extra_items) + "</div>")
+                        
+                        elif cat == "沙发":
+                            sofa_dims = p.get("sofa_dimensions", {})
+                            if sofa_dims:
+                                # 显示所有尺寸（靠背高度、坐深、坐垫高度等）
+                                dim_items = []
+                                for k, v in sofa_dims.items():
+                                    dim_items.append(f'<span class="k">{k}</span> <span class="v">{v}cm</span>')
+                                # 分两行显示
+                                mid = (len(dim_items) + 1) // 2
+                                html_parts.append("<div>" + " ｜ ".join(dim_items[:mid]) + "</div>")
+                                if len(dim_items) > mid:
+                                    html_parts.append("<div>" + " ｜ ".join(dim_items[mid:]) + "</div>")
+                            if p.get("design_style"):
+                                html_parts.append(f'<div><span class="k">风格</span> <span class="v">{p["design_style"]}</span></div>')
+                            
+                            # 沙发组件尺寸（单规格尺寸），超出部分可点击展开
+                            sofa_comps = p.get("sofa_components", {})
+                            if sofa_comps:
+                                comps_list = list(sofa_comps.items())
+                                comp_html = '<div style="margin-top:6px;"><span class="k" style="display:block;margin-bottom:2px;">组件尺寸</span>'
+                                # 显示前5个
+                                for ck, cv in comps_list[:5]:
+                                    comp_html += f'<span class="pd-spec-tag">{ck}: {cv}cm</span>'
+                                # 超出部分用 details 展开
+                                if len(comps_list) > 5:
+                                    more_count = len(comps_list) - 5
+                                    comp_html += '<details class="pd-comp-more" style="display:inline-block;vertical-align:top;">'
+                                    comp_html += f'<summary class="pd-spec-tag" style="cursor:pointer;list-style:none;">+{more_count}</summary>'
+                                    comp_html += '<div style="margin-top:4px;">'
+                                    for ck, cv in comps_list[5:]:
+                                        comp_html += f'<span class="pd-spec-tag">{ck}: {cv}cm</span>'
+                                    comp_html += '</div></details>'
+                                comp_html += '</div>'
+                                html_parts.append(comp_html)
+                            
+                            # 面料 / 填充（更详细显示，完整内容放查看更多）
+                            fabric_text = p.get("fabric_text", "")
+                            filling_text = p.get("filling_text", "")
+                            if fabric_text or filling_text:
+                                # 面料：分行显示更清晰
+                                if fabric_text:
+                                    fab_lines = [l.strip() for l in fabric_text.split('\n') if l.strip()]
+                                    if fab_lines:
+                                        fab_html = '<div style="margin-top:4px;"><span class="k" style="display:block;margin-bottom:2px;">面料</span>'
+                                        for fl in fab_lines[:2]:
+                                            clean_fl = re.sub(r'\*\*([^*]+)\*\*', r'\1', fl)
+                                            fab_html += f'<div style="padding:1px 0;color:#555;font-size:12px;">{clean_fl}</div>'
+                                        fab_html += '</div>'
+                                        html_parts.append(fab_html)
+                                # 填充：分行显示更清晰
+                                if filling_text:
+                                    fill_lines = [l.strip() for l in filling_text.split('\n') if l.strip()]
+                                    if fill_lines:
+                                        fill_html = '<div style="margin-top:4px;"><span class="k" style="display:block;margin-bottom:2px;">填充</span>'
+                                        for fl in fill_lines[:2]:
+                                            clean_fl = re.sub(r'\*\*([^*]+)\*\*', r'\1', fl)
+                                            fill_html += f'<div style="padding:1px 0;color:#555;font-size:12px;">{clean_fl}</div>'
+                                        fill_html += '</div>'
+                                        html_parts.append(fill_html)
+                        
+                        elif cat == "床垫":
+                            # 睡感等级（突出显示）
+                            if p.get("sleep_level"):
+                                html_parts.append(f'<div><span class="k">睡感等级</span> <span class="v">{p["sleep_level"]}</span></div>')
+                            # 床垫高度
+                            if p.get("mattress_height"):
+                                html_parts.append(f'<div><span class="k">床垫高度</span> <span class="v">{p["mattress_height"]}</span></div>')
+                            # 产品配置（分行显示，不截断）
+                            config_lines = p.get("product_config_lines", [])
+                            if config_lines:
+                                cfg_html = '<div style="margin-top:4px;"><span class="k" style="display:block;margin-bottom:2px;">产品配置</span>'
+                                for cl in config_lines:
+                                    cfg_html += f'<div style="padding:2px 0;color:#555;">{cl}</div>'
+                                cfg_html += '</div>'
+                                html_parts.append(cfg_html)
+                            elif p.get("product_config"):
+                                html_parts.append(f'<div><span class="k">配置</span> <span class="v">{p["product_config"]}</span></div>')
+                            # 材质
+                            if p.get("material"):
+                                mat_short = p["material"][:40] + "…" if len(p["material"]) > 40 else p["material"]
+                                html_parts.append(f'<div><span class="k">材质</span> <span class="v" title="{p["material"]}">{mat_short}</span></div>')
+                            # 床垫面料层/填充层信息
+                            fabric_text = p.get("fabric_text", "")
+                            filling_text = p.get("filling_text", "")
+                            if fabric_text:
+                                fab_short = fabric_text[:28] + "…" if len(fabric_text) > 28 else fabric_text
+                                html_parts.append(f'<div><span class="k">面料层</span> <span class="v" title="{fabric_text}">{fab_short}</span></div>')
+                            if filling_text:
+                                fill_short = filling_text[:28] + "…" if len(filling_text) > 28 else filling_text
+                                html_parts.append(f'<div><span class="k">填充层</span> <span class="v" title="{filling_text}">{fill_short}</span></div>')
+                        
+                        elif cat == "配套":
+                            if p.get("material"):
+                                html_parts.append(f'<div><span class="k">材质</span> <span class="v">{p["material"]}</span></div>')
+                            if p.get("design_style"):
+                                html_parts.append(f'<div><span class="k">风格</span> <span class="v">{p["design_style"]}</span></div>')
+                        
+                        # 配色（含色号）
+                        if colors or color_codes:
+                            color_html = '<div style="margin-top:4px;line-height:1.8;">'
+                            if color_codes:
+                                # 有色号时，显示色号+颜色名
+                                for i, code in enumerate(color_codes[:4]):
+                                    cn = colors[i] if i < len(colors) else ""
+                                    # 从颜色名中提取纯中文名（去掉材质括号）
+                                    cn_clean = re.sub(r'\(.*\)', '', cn).strip()
+                                    color_html += f'<span class="pd-color-chip">{code}<span class="cn">{cn_clean}</span></span>'
+                                if len(color_codes) > 4:
+                                    color_html += f'<span class="pd-color-chip">+{len(color_codes)-4}</span>'
+                            else:
+                                color_str = "、".join(colors[:4])
+                                if len(colors) > 4:
+                                    color_str += f" 等{len(colors)}色"
+                                color_html += f'<span class="k">配色</span> <span class="v">{color_str}</span>'
+                            color_html += '</div>'
+                            html_parts.append(color_html)
+                        
+                        html_parts.append('</div>')  # pd-info
+                        
+                        # 三好标签 + 查看更多信息（下拉）
+                        has_any_good = good_looks or good_comfort or good_quality
+                        has_extra_info = p.get("fabric_text") or p.get("filling_text") or p.get("frame_text") or p.get("product_config") or (cat == "床垫" and (p.get("product_story") or p.get("material")))
+                        if has_any_good or has_extra_info:
+                            html_parts.append('<div class="pd-section-title">🌟 三好品质</div>')
+                            html_parts.append('<div class="pd-goods">')
+                            if good_looks:
+                                html_parts.append('<span class="pd-good-tag g1">🎨 好看</span>')
+                            if good_comfort:
+                                html_parts.append('<span class="pd-good-tag g2">🛋️ 好舒适</span>')
+                            if good_quality:
+                                html_parts.append('<span class="pd-good-tag g3">🔧 好品质</span>')
+                            html_parts.append('</div>')
+                            
+                            # 查看更多信息下拉（三好完整内容 + 面料/填充/功能架详情）
+                            more_content_parts = []
+                            
+                            # 三好完整内容
+                            if good_looks_text:
+                                more_content_parts.append(f'<div class="gc-title">🎨 好看</div><div style="margin-bottom:8px;line-height:1.6;">{good_looks_text}</div>')
+                            if good_comfort_text:
+                                more_content_parts.append(f'<div class="gc-title">🛋️ 好舒适</div><div style="margin-bottom:8px;line-height:1.6;">{good_comfort_text}</div>')
+                            if good_quality_text:
+                                more_content_parts.append(f'<div class="gc-title">🔧 好品质</div><div style="margin-bottom:8px;line-height:1.6;">{good_quality_text}</div>')
+                            
+                            # 面料详情
+                            if p.get("fabric_text"):
+                                more_content_parts.append(f'<div class="gc-title">🧵 面料</div><div style="margin-bottom:8px;line-height:1.6;">{p["fabric_text"]}</div>')
+                            
+                            # 填充详情
+                            if p.get("filling_text"):
+                                more_content_parts.append(f'<div class="gc-title">☁️ 填充</div><div style="margin-bottom:8px;line-height:1.6;">{p["filling_text"]}</div>')
+                            
+                            # 功能架详情（沙发）
+                            if p.get("frame_text"):
+                                more_content_parts.append(f'<div class="gc-title">⚙️ 功能架</div><div style="margin-bottom:8px;line-height:1.6;">{p["frame_text"]}</div>')
+                            
+                            # 床垫专属：产品故事（上面卡片未展示的内容）
+                            if cat == "床垫":
+                                story = p.get("product_story", "")
+                                if story:
+                                    more_content_parts.append(f'<div class="gc-title">📖 产品故事</div><div style="margin-bottom:8px;line-height:1.6;">{story}</div>')
+                                # 材质完整信息
+                                if p.get("material"):
+                                    more_content_parts.append(f'<div class="gc-title">🧱 完整材质</div><div style="margin-bottom:8px;line-height:1.6;">{p["material"]}</div>')
+                            
+                            # 单组件规格价目表（沙发）
+                            if cat == "沙发" and p.get("single_price_rows"):
+                                more_content_parts.append('<div class="gc-title">🧩 单组件规格与价格</div>')
+                                more_content_parts.append('<table class="pd-price-table" style="margin-bottom:8px;"><thead><tr><th>组件</th><th>宽度</th><th style="text-align:right">价格</th></tr></thead><tbody>')
+                                for spr in p["single_price_rows"][:8]:
+                                    parts = spr.split(" → ", 1)
+                                    if len(parts) == 2:
+                                        spec = parts[0]
+                                        rest = parts[1]
+                                        pm = re.search(r'(.*), (¥[\d,]+)', rest)
+                                        if pm:
+                                            size = pm.group(1)
+                                            price = pm.group(2)
+                                            more_content_parts.append(f'<tr><td>{spec}</td><td>{size}</td><td class="pd-td-price">{price}</td></tr>')
+                                        else:
+                                            more_content_parts.append(f'<tr><td>{spec}</td><td>{rest}</td><td class="pd-td-price">-</td></tr>')
+                                    else:
+                                        more_content_parts.append(f'<tr><td colspan="3">{spr}</td></tr>')
+                                more_content_parts.append('</tbody></table>')
+                            
+                            if more_content_parts:
+                                html_parts.append('<details class="pd-more-info" style="margin-top:6px;"><summary></summary>')
+                                html_parts.append('<div class="pd-good-content">')
+                                html_parts.append("".join(more_content_parts))
+                                html_parts.append('</div></details>')
+                        
+                        html_parts.append('</div>')  # pd-body
+                        html_parts.append('</div>')  # pd-card
+                        
+                        # 图片区（用 Streamlit st.image 高清显示）
                         if matching_img_dict:
-                            t_cat, t_scene, t_home = st.tabs(["📦 规格图", "🏡 展厅效果图", "📸 客户实景图"])
-                            with t_cat:
-                                c_imgs = matching_img_dict.get("catalog_images", [])
-                                if c_imgs:
-                                    for img_p in c_imgs[:1]:
-                                        resized = _load_resized_image(img_p, max_width=600)
+                            c_imgs = matching_img_dict.get("catalog_images", [])
+                            s_imgs = matching_img_dict.get("scene_images", [])
+                            
+                            # 浏览图（最多3张）
+                            display_c_imgs = c_imgs[:3] if c_imgs else []
+                            
+                            if display_c_imgs:
+                                html_parts.append('<div class="pd-imgs-st">')
+                                html_parts.append('<div class="pd-imgs-label">🖼️ 产品图</div>')
+                                html_parts.append('</div>')
+                            
+                            html_parts.append('</div>')  # pd-card-wrapper
+                            
+                            st.markdown("".join(html_parts), unsafe_allow_html=True)
+                            
+                            # 用 st.image 显示高清浏览图
+                            if display_c_imgs:
+                                img_cols = st.columns(len(display_c_imgs))
+                                for i, img_p in enumerate(display_c_imgs):
+                                    with img_cols[i]:
+                                        resized = _load_resized_image(img_p, max_width=400)
                                         if resized:
-                                            st.image(resized, use_container_width=True)
+                                            st.image(resized, use_container_width=True, caption=f"浏览图{i+1}")
                                         else:
-                                            st.image(img_p, use_container_width=True)
-                                else:
-                                    st.info("暂无规格图")
-                            with t_scene:
-                                s_imgs = matching_img_dict.get("scene_images", [])
+                                            st.image(img_p, use_container_width=True, caption=f"浏览图{i+1}")
+                                
+                                # 场景图（1张，放在浏览图下方）
                                 if s_imgs:
-                                    for img_p in s_imgs[:1]:
-                                        resized = _load_resized_image(img_p, max_width=600)
-                                        if resized:
-                                            st.image(resized, use_container_width=True)
-                                        else:
-                                            st.image(img_p, use_container_width=True)
-                                else:
-                                    st.info("暂无展厅效果图")
-                            with t_home:
-                                h_imgs = matching_img_dict.get("home_images", []) or matching_img_dict.get("real_images", [])
-                                if h_imgs:
-                                    for img_p in h_imgs[:1]:
-                                        resized = _load_resized_image(img_p, max_width=600)
-                                        if resized:
-                                            st.image(resized, use_container_width=True)
-                                        else:
-                                            st.image(img_p, use_container_width=True)
-                                else:
-                                    st.info("暂无客户实景图")
+                                    with st.expander("🏡 查看场景图", expanded=False):
+                                        for sp in s_imgs[:2]:
+                                            resized = _load_resized_image(sp, max_width=500)
+                                            if resized:
+                                                st.image(resized, use_container_width=True)
+                                            else:
+                                                st.image(sp, use_container_width=True)
                         else:
-                            st.info("💡 暂无本地匹配图片")
+                            html_parts.append('</div>')  # pd-card-wrapper
+                            st.markdown("".join(html_parts), unsafe_allow_html=True)
     else:
         st.info("👆 请设置筛选条件后点击「🔍 开始查询」按钮，或使用上方快捷按键一键检索。")
