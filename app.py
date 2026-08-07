@@ -2311,16 +2311,12 @@ with main_tab1:
                             with [tab_cat, tab_scene, tab_home][["cat", "scene", "home"].index(tab_name)]:
                                 imgs = img_dict.get(img_key, []) or (img_dict.get("real_images", []) if img_key == "home_images" else [])
                                 if imgs:
-                                    # 只显示前3张，使用压缩图减少传输体积
+                                    # 本地搜索直接显示原图，更清晰
                                     for i in range(0, min(len(imgs), 3), 3):
                                         cols = st.columns(3)
                                         for j, img_p in enumerate(imgs[i:i+3]):
                                             with cols[j]:
-                                                resized = _load_resized_image(img_p, max_width=500)
-                                                if resized:
-                                                    st.image(resized, use_container_width=True)
-                                                else:
-                                                    st.image(img_p, use_container_width=True)
+                                                st.image(img_p, use_container_width=True)
                                 else:
                                     st.info({"cat": "暂无规格/浏览图", "scene": "暂无展厅/场景效果图", "home": "📸 暂无客户入户实景图"}[tab_name])
 
@@ -3366,26 +3362,18 @@ with main_tab2:
                             
                             st.markdown("".join(html_parts), unsafe_allow_html=True)
                             
-                            # 用 st.image 显示高清浏览图
+                            # 用 st.image 显示高清浏览图（本地直接加载原图，无需压缩）
                             if display_c_imgs:
                                 img_cols = st.columns(len(display_c_imgs))
                                 for i, img_p in enumerate(display_c_imgs):
                                     with img_cols[i]:
-                                        resized = _load_resized_image(img_p, max_width=400)
-                                        if resized:
-                                            st.image(resized, use_container_width=True, caption=f"浏览图{i+1}")
-                                        else:
-                                            st.image(img_p, use_container_width=True, caption=f"浏览图{i+1}")
+                                        st.image(img_p, use_container_width=True, caption=f"浏览图{i+1}")
                                 
-                                # 场景图（1张，放在浏览图下方）
+                                # 场景图（放在浏览图下方，加载原图）
                                 if s_imgs:
                                     with st.expander("🏡 查看场景图", expanded=False):
                                         for sp in s_imgs[:2]:
-                                            resized = _load_resized_image(sp, max_width=500)
-                                            if resized:
-                                                st.image(resized, use_container_width=True)
-                                            else:
-                                                st.image(sp, use_container_width=True)
+                                            st.image(sp, use_container_width=True)
                         else:
                             html_parts.append('</div>')  # pd-card-wrapper
                             st.markdown("".join(html_parts), unsafe_allow_html=True)
